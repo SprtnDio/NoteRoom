@@ -226,14 +226,14 @@ void loadOrAskUsername() {
     ensureDirectoriesExist();
     FILE* f = fopen("sdmc:/3ds/NoteRoom/user.txt", "r");
     if (f) {
-        fscanf(f, "%8s\n%hhu\n", game->userName, &game->userColorIdx);
+        fscanf(f, "%12s\n%hhu\n", game->userName, &game->userColorIdx);
         fclose(f);
         if(game->userColorIdx >= NUM_USER_COLORS) game->userColorIdx = 0;
         if (strlen(game->userName) > 0) return;
     } else {
         f = fopen("sdmc:/3ds/NoteRoom/name.txt", "r");
         if (f) {
-            fscanf(f, "%8s", game->userName);
+            fscanf(f, "%12s", game->userName);
             fclose(f);
             game->userColorIdx = 0;
             saveUserData();
@@ -241,12 +241,13 @@ void loadOrAskUsername() {
         }
     }
     SwkbdState s;
-    swkbdInit(&s, SWKBD_TYPE_NORMAL, 1, 8);
-    swkbdSetHintText(&s, "Enter Nickname (Max 8)");
-    swkbdSetValidation(&s, SWKBD_NOTEMPTY_NOTBLANK, 0, 8);
-    if (swkbdInputText(&s, game->userName, 9) != SWKBD_BUTTON_CONFIRM) {
-        strncpy(game->userName, "Guest", 8);
-        game->userName[8] = '\0';
+    swkbdInit(&s, SWKBD_TYPE_NORMAL, 1, 12);
+    swkbdSetHintText(&s, "Enter Nickname (Max 12)");
+    swkbdSetValidation(&s, SWKBD_NOTEMPTY_NOTBLANK, 0, 12);
+    if (swkbdInputText(&s, game->userName, 13) != SWKBD_BUTTON_CONFIRM) {
+        snprintf(game->userName, 13, "Guest");
+    } else {
+        game->userName[12] = '\0'; 
     }
     game->userColorIdx = 0;
     saveUserData();
@@ -255,13 +256,12 @@ void loadOrAskUsername() {
 void editUsername() {
     SwkbdState s;
     char newName[16] = {0};
-    swkbdInit(&s, SWKBD_TYPE_NORMAL, 1, 8);
-    swkbdSetHintText(&s, "New Nickname (Max 8)");
+    swkbdInit(&s, SWKBD_TYPE_NORMAL, 1, 12);
+    swkbdSetHintText(&s, "New Nickname (Max 12)");
     swkbdSetInitialText(&s, game->userName);
-    swkbdSetValidation(&s, SWKBD_NOTEMPTY_NOTBLANK, 0, 8);
-    if (swkbdInputText(&s, newName, 9) == SWKBD_BUTTON_CONFIRM) {
-        strncpy(game->userName, newName, 8);
-        game->userName[8] = '\0';
+    swkbdSetValidation(&s, SWKBD_NOTEMPTY_NOTBLANK, 0, 12);
+    if (swkbdInputText(&s, newName, 13) == SWKBD_BUTTON_CONFIRM) {
+        snprintf(game->userName, 13, "%s", newName);
         saveUserData();
         updateStatus("Name updated!");
     }
@@ -463,13 +463,13 @@ void decode_drawing(const char* payload) {
     char* hash = strchr(payload, '#');
     if (hash && hash < firstPipe) {
         int nameLen = hash - payload;
-        if (nameLen > 8) nameLen = 8;
+        if (nameLen > 12) nameLen = 12;
         strncpy(senderName, payload, nameLen);
         senderName[nameLen] = '\0';
         colorIdx = atoi(hash + 1);
     } else {
         int nameLen = firstPipe - payload;
-        if (nameLen > 8) nameLen = 8;
+        if (nameLen > 12) nameLen = 12;
         strncpy(senderName, payload, nameLen);
         senderName[nameLen] = '\0';
     }
@@ -812,16 +812,36 @@ void openKeyboard() {
 
 void renderDrawingPreview(ChatMessage* msg, float startX, float startY, float width, float height) {
     if (!msg || !msg->drawingData || msg->drawingCount < 2) return;
-    float scaleY = height / 240.0f;
-    float scaleX = width / 320.0f;
+    
+    float canvasW = 320.0f;
+    float canvasH = (float)(DRAWING_AREA_BOTTOM - DRAWING_AREA_TOP);
+    
+    float scaleX = width / canvasW;
+    float scaleY = height / canvasH;
+    
+    float scale = (scaleX < scaleY) ? scaleX : scaleY;
+    
+    float offsetX = startX + (width - (canvasW * scale)) / 2.0f;
+    float offsetY = startY + (height - (canvasH * scale)) / 2.0f;
+    
     for (int j = 1; j < msg->drawingCount; j++) {
         Point p1 = msg->drawingData[j-1];
         Point p2 = msg->drawingData[j];
         if (p1.x != 0xFFFF && p2.x != 0xFFFF) {
             float displaySize = (p2.type == 1) ? game->eraserSizes[p2.sizeIdx % ERASER_SIZE_COUNT] : game->penSizes[p2.sizeIdx % PEN_SIZE_COUNT];
+            displaySize *= scale;
+            if (displaySize < 1.0f) displaySize = 1.0f; 
+            
             u32 col = (p2.type == 1) ? C2D_Color32(50, 55, 70, 255) : C2D_Color32(200, 200, 200, 255);
-            float y1 = startY + p1.y * scaleY; float y2 = startY + p2.y * scaleY;
-            float x1 = startX + p1.x * scaleX; float x2 = startX + p2.x * scaleX;
+            
+            float normY1 = (float)p1.y - DRAWING_AREA_TOP;
+            float normY2 = (float)p2.y - DRAWING_AREA_TOP;
+            
+            float y1 = offsetY + normY1 * scale;
+            float y2 = offsetY + normY2 * scale;
+            float x1 = offsetX + (float)p1.x * scale;
+            float x2 = offsetX + (float)p2.x * scale;
+            
             C2D_DrawLine(x1, y1, col, x2, y2, col, displaySize, 0.5f);
         }
     }
@@ -833,13 +853,14 @@ void drawTextBubble(float x, float y, float width, float height, const char* sen
     C2D_DrawLine(x, y + height, C2D_Color32(80, 80, 100, 255), x + width, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
     C2D_DrawLine(x, y, C2D_Color32(80, 80, 100, 255), x, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
     C2D_DrawLine(x + width, y, C2D_Color32(80, 80, 100, 255), x + width, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
+    
     char senderStr[32]; snprintf(senderStr, sizeof(senderStr), "%s", sender);
     C2D_Text t_sender; C2D_TextParse(&t_sender, g_dynBuf, senderStr);
     u32 nameColor = (colorIdx < NUM_USER_COLORS) ? USER_COLORS[colorIdx] : USER_COLORS[0];
-    C2D_DrawText(&t_sender, C2D_WithColor | C2D_AlignRight, x - 8, y + 2, 0.5f, 0.5f, 0.5f, nameColor);
+    C2D_DrawText(&t_sender, C2D_WithColor | C2D_AlignLeft, x + 8, y + 4, 0.5f, 0.5f, 0.5f, nameColor);
     
     int textOffset = 0;
-    float lineY = y + 5;
+    float lineY = y + 22; 
     float textHeight = 18.0f;
     int text_len = strlen(text);
     
@@ -878,11 +899,13 @@ void drawDrawingBubble(float x, float y, float width, float height, const char* 
     C2D_DrawLine(x, y + height, C2D_Color32(80, 80, 100, 255), x + width, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
     C2D_DrawLine(x, y, C2D_Color32(80, 80, 100, 255), x, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
     C2D_DrawLine(x + width, y, C2D_Color32(80, 80, 100, 255), x + width, y + height, C2D_Color32(80, 80, 100, 255), 2.0f, 0.5f);
+    
     char senderStr[32]; snprintf(senderStr, sizeof(senderStr), "%s", sender);
     C2D_Text t_sender; C2D_TextParse(&t_sender, g_dynBuf, senderStr);
     u32 nameColor = (colorIdx < NUM_USER_COLORS) ? USER_COLORS[colorIdx] : USER_COLORS[0];
-    C2D_DrawText(&t_sender, C2D_WithColor | C2D_AlignRight, x - 8, y + 2, 0.5f, 0.5f, 0.5f, nameColor);
-    renderDrawingPreview(msg, x + 8, y + 5, width - 16, height - 10);
+    C2D_DrawText(&t_sender, C2D_WithColor | C2D_AlignLeft, x + 8, y + 4, 0.5f, 0.5f, 0.5f, nameColor);
+    
+    renderDrawingPreview(msg, x + 8, y + 22, width - 16, height - 26);
 }
 
 void renderScrollBar(float totalHeight, float visibleHeight, float scrollOffset) {
@@ -907,7 +930,11 @@ void drawActivityDot(float x, float y, int userCount) {
 void renderTop() {
     if (!game->needsRedrawTop) return;
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-    u8 battery = 0; PTMU_GetBatteryLevel(&battery);
+    
+    u8 battery_raw = 0;
+    MCUHWC_GetBatteryLevel(&battery_raw); 
+    if (battery_raw > 100) battery_raw = 100; // 
+    
     u8 wifi = osGetWifiStrength();
     
     if (game->appState == STATE_MAIN_MENU || game->appState == STATE_SUB_MENU) {
@@ -918,13 +945,9 @@ void renderTop() {
         C2D_DrawLine(0, 25, C2D_Color32(100, 180, 255, 255), 400, 25, C2D_Color32(100, 180, 255, 255), 2.0f, 0.5f);
         
         if (game->appState == STATE_MAIN_MENU) {
-            C2D_Text t_title_prefix; C2D_TextParse(&t_title_prefix, g_dynBuf, "NOTEROOM - ");
-            C2D_DrawText(&t_title_prefix, C2D_WithColor | C2D_AlignLeft, 5, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
-            float prefixW, prefixH;
-            C2D_TextGetDimensions(&t_title_prefix, 0.6f, 0.6f, &prefixW, &prefixH);
             C2D_Text t_title_name; C2D_TextParse(&t_title_name, g_dynBuf, game->userName);
             u32 nameColor = (game->userColorIdx < NUM_USER_COLORS) ? USER_COLORS[game->userColorIdx] : USER_COLORS[0];
-            C2D_DrawText(&t_title_name, C2D_WithColor | C2D_AlignLeft, 5 + prefixW, 4, 0.5f, 0.6f, 0.6f, nameColor);
+            C2D_DrawText(&t_title_name, C2D_WithColor | C2D_AlignLeft, 5, 4, 0.5f, 0.6f, 0.6f, nameColor);
         } else {
             char titleStr[64];
             snprintf(titleStr, sizeof(titleStr), "%s", ROOM_NAMES[game->selectedCategoryIdx]);
@@ -932,15 +955,39 @@ void renderTop() {
             C2D_DrawText(&t_title, C2D_WithColor | C2D_AlignLeft, 5, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         }
         
-        char sysInfo[32]; snprintf(sysInfo, sizeof(sysInfo), "WiFi:%d/3  Bat:%d/5", wifi, battery);
-        C2D_Text t_sys; C2D_TextParse(&t_sys, g_dynBuf, sysInfo);
-        C2D_DrawText(&t_sys, C2D_WithColor | C2D_AlignRight, 395, 6, 0.5f, 0.5f, 0.5f, C2D_Color32(180, 180, 200, 255));
-        
-        if (game->statusMsgTimer > osGetTime()) {
+        if (game->isSyncing) {
+            C2D_Text t_sync; C2D_TextParse(&t_sync, g_dynBuf, "Syncing...");
+            C2D_DrawText(&t_sync, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(180, 180, 180, 255));
+        } else if (game->statusMsgTimer > osGetTime() && strstr(game->statusMsg, "FULL") != NULL) {
             C2D_Text t_stat; C2D_TextParse(&t_stat, g_dynBuf, game->statusMsg);
-            u32 statCol = (strstr(game->statusMsg, "FULL") != NULL) ? C2D_Color32(255, 50, 50, 255) : C2D_Color32(255, 255, 0, 255);
-            C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, statCol);
+            C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 50, 50, 255));
+        } else {
+            u32 connCol = (mqtt_sock >= 0) ? C2D_Color32(0, 255, 100, 255) : C2D_Color32(255, 255, 255, 255);
+            const char* connText = (mqtt_sock >= 0) ? "Online" : "Offline";
+            
+            C2D_Text t_conn; C2D_TextParse(&t_conn, g_dynBuf, connText);
+            float w_conn, h_conn;
+            C2D_TextGetDimensions(&t_conn, 0.5f, 0.6f, &w_conn, &h_conn);
+            
+            float total_w = 15.0f + w_conn; 
+            float start_x = 200.0f - (total_w / 2.0f); 
+            
+            C2D_DrawCircleSolid(start_x + 5.0f, 12.0f, 0.5f, 5.0f, connCol);
+            C2D_DrawText(&t_conn, C2D_WithColor | C2D_AlignLeft, start_x + 15.0f, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         }
+        
+        
+        float wifi_x = 310; 
+        float wifi_y = 17;
+        u32 wCol = C2D_Color32(200, 200, 200, 255);
+        C2D_DrawCircleSolid(wifi_x, wifi_y, 0.5f, 2.0f, (wifi >= 1) ? wCol : C2D_Color32(80, 80, 80, 255));
+        C2D_DrawRectSolid(wifi_x + 4, wifi_y - 4, 0.5f, 3, 6, (wifi >= 2) ? wCol : C2D_Color32(80, 80, 80, 255));
+        C2D_DrawRectSolid(wifi_x + 9, wifi_y - 8, 0.5f, 3, 10, (wifi >= 3) ? wCol : C2D_Color32(80, 80, 80, 255));
+        
+        char sysInfo[32]; snprintf(sysInfo, sizeof(sysInfo), "Bat:%d%%", battery_raw);
+        C2D_Text t_sys; C2D_TextParse(&t_sys, g_dynBuf, sysInfo);
+        
+        C2D_DrawText(&t_sys, C2D_WithColor | C2D_AlignRight, 395, 5, 0.5f, 0.6f, 0.6f, C2D_Color32(180, 180, 200, 255));
         
         int roomWidth = 340, roomHeight = 22, startX = (400 - roomWidth) / 2, startY = 38, spacing = 3;
         int itemCount = (game->appState == STATE_MAIN_MENU) ? CATEGORY_COUNT : SUB_ROOM_COUNTS[game->selectedCategoryIdx];
@@ -994,9 +1041,9 @@ void renderTop() {
         RoomChat* room = &game->rooms[game->selectedCategoryIdx][game->selectedSubIdx];
         
         if (room->messageCount > 0) {
-            float textHeight = 18.0f, drawingHeight = DRAWING_PREVIEW_HEIGHT + 10, totalMsgHeight = 0;
+            float textHeight = 18.0f, drawingHeight = DRAWING_PREVIEW_HEIGHT + 25, totalMsgHeight = 0; 
             for (int i = 0; i < room->messageCount; i++) {
-                totalMsgHeight += (room->messages[i].isDrawing ? drawingHeight : (textHeight * room->messages[i].wrappedLines + 10)) + 5;
+                totalMsgHeight += (room->messages[i].isDrawing ? drawingHeight : (textHeight * room->messages[i].wrappedLines + 25)) + 5;
             }
             int maxS = (int)(totalMsgHeight - (DRAWING_AREA_HEIGHT - 25) + MESSAGE_BOTTOM_PADDING);
             if (maxS < 0) maxS = 0;
@@ -1009,13 +1056,13 @@ void renderTop() {
             for (int i = 0; i < room->messageCount; i++) {
                 ChatMessage* msg = &room->messages[i];
                 if (!msg) continue;
-                float currentItemHeight = msg->isDrawing ? drawingHeight : (textHeight * msg->wrappedLines + 10);
+                float currentItemHeight = msg->isDrawing ? drawingHeight : (textHeight * msg->wrappedLines + 25);
                 if (msgY + currentItemHeight > 0 && msgY < DRAWING_AREA_HEIGHT) {
                     u8 colorIdx = (msg->nameColorIdx < NUM_USER_COLORS) ? msg->nameColorIdx : 0;
                     if (msg->isDrawing) { 
-                        drawDrawingBubble(90, msgY, 300, drawingHeight, msg->sender, colorIdx, msg); 
+                        drawDrawingBubble(50, msgY, 300, drawingHeight, msg->sender, colorIdx, msg); 
                     } else { 
-                        drawTextBubble(90, msgY, 300, textHeight * msg->wrappedLines + 10, msg->sender, colorIdx, msg->text, msg->wrappedLines); 
+                        drawTextBubble(50, msgY, 300, textHeight * msg->wrappedLines + 25, msg->sender, colorIdx, msg->text, msg->wrappedLines); 
                     }
                 }
                 msgY += currentItemHeight + 5;
@@ -1043,15 +1090,17 @@ void renderTop() {
         C2D_Text t_num; C2D_TextParse(&t_num, g_dynBuf, header_num);
         C2D_DrawText(&t_num, C2D_WithColor | C2D_AlignLeft, 5 + tw + 15, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         
-        if (game->statusMsgTimer > osGetTime()) {
-            C2D_Text t_stat; C2D_TextParse(&t_stat, g_dynBuf, game->statusMsg);
-            u32 statCol = (strstr(game->statusMsg, "FULL") != NULL) ? C2D_Color32(255, 50, 50, 255) : C2D_Color32(255, 255, 0, 255);
-            C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, statCol);
-        }
         
-        char sysInfo[32]; snprintf(sysInfo, sizeof(sysInfo), "WiFi:%d/3  Bat:%d/5", wifi, battery);
+        float wifi_x = 310;
+        float wifi_y = 17;
+        u32 wCol = C2D_Color32(200, 200, 200, 255);
+        C2D_DrawCircleSolid(wifi_x, wifi_y, 0.5f, 2.0f, (wifi >= 1) ? wCol : C2D_Color32(80, 80, 80, 255));
+        C2D_DrawRectSolid(wifi_x + 4, wifi_y - 4, 0.5f, 3, 6, (wifi >= 2) ? wCol : C2D_Color32(80, 80, 80, 255));
+        C2D_DrawRectSolid(wifi_x + 9, wifi_y - 8, 0.5f, 3, 10, (wifi >= 3) ? wCol : C2D_Color32(80, 80, 80, 255));
+        
+        char sysInfo[32]; snprintf(sysInfo, sizeof(sysInfo), "Bat:%d%%", battery_raw);
         C2D_Text t_sys; C2D_TextParse(&t_sys, g_dynBuf, sysInfo);
-        C2D_DrawText(&t_sys, C2D_WithColor | C2D_AlignRight, 395, 6, 0.5f, 0.5f, 0.5f, C2D_Color32(180, 180, 200, 255));
+        C2D_DrawText(&t_sys, C2D_WithColor | C2D_AlignRight, 395, 5, 0.5f, 0.6f, 0.6f, C2D_Color32(180, 180, 200, 255));
     }
     C3D_FrameEnd(0);
     game->needsRedrawTop = false;
@@ -1168,7 +1217,7 @@ void renderBottom() {
         C2D_Text t_r3; C2D_TextParse(&t_r3, g_dynBuf, "3. Do not spam the chat.");
         C2D_DrawText(&t_r3, C2D_WithColor | C2D_AlignCenter, 160, 185, 0.5f, 0.5f, 0.5f, C2D_Color32(150, 150, 150, 255));
 
-        C2D_Text t_version; C2D_TextParse(&t_version, g_dynBuf, "v1.0  |  github.com/SprtnDio");
+        C2D_Text t_version; C2D_TextParse(&t_version, g_dynBuf, "v1.0  |  Beta Test ARLO");
         C2D_DrawText(&t_version, C2D_WithColor, 5, 220, 0.5f, 0.5f, 0.5f, C2D_Color32(80, 80, 90, 255));
     }
     C3D_FrameEnd(0);
@@ -1180,7 +1229,8 @@ int main(void) {
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
-    ptmuInit();
+    
+    mcuHwcInit();
     
     psInit();
     u64 fc_seed = 0;
@@ -1189,7 +1239,7 @@ int main(void) {
 
     top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-    g_dynBuf = C2D_TextBufNew(4096);
+    g_dynBuf = C2D_TextBufNew(4096 * 2);
     SOC_buffer = (u32*)memalign(SOC_ALIGN, SOC_BUFFERSIZE);
     if(SOC_buffer) socInit(SOC_buffer, SOC_BUFFERSIZE);
     
@@ -1231,7 +1281,7 @@ int main(void) {
         if (kDown & KEY_START) break;
         u32 currentTime = osGetTime();
         
-        if (game->isSyncing && (currentTime - boot_time > 1500)) {
+        if (game->isSyncing && (currentTime - boot_time > 7000)) {
             game->isSyncing = false;
             game->needsRedrawTop = true;
         }
@@ -1241,6 +1291,12 @@ int main(void) {
             sprintf(req_topic, "%s/Heartbeat/REQ", g_base_topic);
             mqtt_publish(req_topic, "?", false);
             initial_req_sent = true;
+        }
+        
+        static u32 last_sec_update = 0;
+        if (currentTime - last_sec_update > 1000) {
+            game->needsRedrawTop = true;
+            last_sec_update = currentTime;
         }
         
         if ((game->appState == STATE_MAIN_MENU || game->appState == STATE_SUB_MENU) &&
@@ -1445,7 +1501,7 @@ int main(void) {
     
     if (mqtt_sock >= 0) close(mqtt_sock);
     socExit();
-    ptmuExit();
+    mcuHwcExit();
     free(SOC_buffer);
     if(game) free(game);
     C2D_TextBufDelete(g_dynBuf);

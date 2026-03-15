@@ -1,5 +1,5 @@
 #---------------------------------------------------------------------------------
-# NoteRoom - 3DSX & CIA
+# NoteRoom - Makefile für 3DSX & CIA
 #---------------------------------------------------------------------------------
 
 ifeq ($(strip $(DEVKITPRO)),)
@@ -21,7 +21,7 @@ CC         := $(DEVKITARM)/bin/arm-none-eabi-gcc
 _3DSX      := $(TOOLS)/3dsxtool
 SMDH       := $(TOOLS)/smdhtool
 MKROM      := $(TOOLS)/makerom
-BANNERTOOL := $(TOOLS)/bannertool
+BANNERTOOL := $(TOOLS)/bannertool 
 
 # Flags
 ARCH      := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
@@ -32,7 +32,7 @@ LIBS      := -lcitro2d -lcitro3d -lctru -lm
 CFLAGS    := -g -Wall -O2 -mword-relocations -ffunction-sections $(ARCH) $(INCLUDE) -D__3DS__ -std=gnu11
 LDFLAGS   := -specs=3dsx.specs -g $(ARCH) $(LIBDIRS) $(LIBS)
 
-# --- REGELN ---
+
 .PHONY: all clean cia
 
 # (.3dsx und .cia)
@@ -44,7 +44,7 @@ $(TARGET).3dsx: $(TARGET).elf $(TARGET).smdh
 	@$(_3DSX) $(TARGET).elf $(TARGET).3dsx --smdh=$(TARGET).smdh
 	@echo "✅ 3DSX fertig!"
 
-# Banner Target 
+# Banner Target
 banner.bin: banner.png audio.wav
 	@echo "🖼️  Erstelle animiertes Banner mit Sound..."
 	@$(BANNERTOOL) makebanner -i banner.png -a audio.wav -o banner.bin

@@ -30,7 +30,7 @@ AccessControlInfo:
 
   # ExtData
   UseExtSaveData                : false # enables ExtData       
-  #ExtSaveDataId                : 0x300 # 
+  #ExtSaveDataId                : 0x300 # only set this when the ID is different to the UniqueId
 
   # FS:USER Archive Access Permissions
   # Uncomment as required
@@ -141,7 +141,7 @@ AccessControlInfo:
     WaitSynchronizationN: 37
     Backdoor: 123
 
-  # Service List
+# Service List
   # Maximum 34 services (32 if firmware is prior to 9.3.0)
   ServiceAccessControl:
    - cfg:u
@@ -165,11 +165,13 @@ AccessControlInfo:
    - ir:u
    - ir:rst
    - ldr:ro
+   - mcu::HWC   
    - mic:u
    - news:u
    - nfc:u
    - nim:aoc
    - nwm::UDS
+   - ps:ps      
    - ptm:u
    - qtm:u
    - soc:U
