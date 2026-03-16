@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 #include "secrets.h"
 
@@ -160,14 +162,17 @@ typedef struct {
     bool hasUnsavedDrawing;
     u32 lastTouchTime;
     u32 lastTopUiUpdate;
+    bool connectionFailed;
 } GameState;
 
 GameState* game = NULL;
 C3D_RenderTarget *top, *bottom;
 C2D_TextBuf g_dynBuf;
 static u32 *SOC_buffer = NULL;
+
 int mqtt_sock = -1;
 u32 last_ping_time = 0;
+u32 last_reconnect_time = 0; 
 bool sendInProgress = false;
 
 char g_mqtt_broker[64];
@@ -280,25 +285,73 @@ int mqtt_encode_length(u8* buf, int length) {
 
 void mqtt_connect() {
     updateStatus("Connecting...");
-    game->needsRedrawTop = true;
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW); C3D_FrameEnd(0);
+    if (game) game->needsRedrawTop = true;
     
     struct hostent* host = gethostbyname(g_mqtt_broker);
-    if (!host) { updateStatus("DNS Error!"); return; }
+    if (!host) { 
+        updateStatus("DNS Error!"); 
+        if (game) game->connectionFailed = true; 
+        return; 
+    }
+    
     mqtt_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (mqtt_sock < 0) { updateStatus("Socket Error!"); return; }
+    if (mqtt_sock < 0) { 
+        updateStatus("Socket Error!"); 
+        if (game) game->connectionFailed = true; 
+        return; 
+    }
+    
+    // Non-Blocking Modus für den Verbindungsaufbau aktivieren (Verhindert Freezes)
+    int flags = fcntl(mqtt_sock, F_GETFL, 0);
+    fcntl(mqtt_sock, F_SETFL, flags | O_NONBLOCK);
     
     struct sockaddr_in server;
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
     server.sin_port = htons(g_mqtt_port); 
     server.sin_addr.s_addr = *((unsigned long*)host->h_addr_list[0]);
-    if (connect(mqtt_sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
-        updateStatus("Connect Failed!");
-        close(mqtt_sock);
-        mqtt_sock = -1;
-        return;
+    
+    int res = connect(mqtt_sock, (struct sockaddr *)&server, sizeof(server));
+    if (res < 0) {
+        if (errno == EINPROGRESS || errno == EWOULDBLOCK || errno == EAGAIN || errno == EALREADY) {
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            FD_SET(mqtt_sock, &wfds);
+            
+            struct timeval tv;
+            tv.tv_sec = 3;  // Max 3 Sekunden auf Tunnel warten
+            tv.tv_usec = 0; 
+            
+            int ret = select(mqtt_sock + 1, NULL, &wfds, NULL, &tv);
+            if (ret <= 0) {
+                close(mqtt_sock);
+                mqtt_sock = -1;
+                updateStatus("Connect Timeout!");
+                if (game) game->connectionFailed = true;
+                return;
+            }
+            
+            // Verbindung mit getpeername verifizieren
+            struct sockaddr_in peer;
+            socklen_t peer_len = sizeof(peer);
+            if (getpeername(mqtt_sock, (struct sockaddr*)&peer, &peer_len) < 0) {
+                close(mqtt_sock);
+                mqtt_sock = -1;
+                updateStatus("Connect Failed!");
+                if (game) game->connectionFailed = true;
+                return;
+            }
+        } else {
+            close(mqtt_sock);
+            mqtt_sock = -1;
+            updateStatus("Connect Failed!");
+            if (game) game->connectionFailed = true;
+            return;
+        }
     }
+    
+    // WICHTIG
+    fcntl(mqtt_sock, F_SETFL, flags & ~O_NONBLOCK);
     
     u8 packet[128];
     int p = 0;
@@ -312,10 +365,22 @@ void mqtt_connect() {
     packet[p++] = 0x00; packet[p++] = strlen(game->clientID);
     memcpy(&packet[p], game->clientID, strlen(game->clientID));
     p += strlen(game->clientID);
-    send(mqtt_sock, packet, p, 0);
-    fcntl(mqtt_sock, F_SETFL, O_NONBLOCK);
+    
+    int sent = send(mqtt_sock, packet, p, 0);
+    if (sent < 0) {
+        close(mqtt_sock);
+        mqtt_sock = -1;
+        updateStatus("Send Error!");
+        if (game) game->connectionFailed = true;
+        return;
+    }
+    
+    // Nach erfolgreichem Senden wieder auf Non-Blocking für das flüssige App-Erlebnis stellen
+    fcntl(mqtt_sock, F_SETFL, flags | O_NONBLOCK);
+    
     updateStatus("Connected!");
     last_ping_time = osGetTime();
+    if (game) game->connectionFailed = false;
 }
 
 void mqtt_subscribe(const char* topic) {
@@ -369,6 +434,10 @@ void mqtt_publish(const char* topic, const char* payload, bool retain) {
     if (res < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         close(mqtt_sock);
         mqtt_sock = -1;
+        if (game) {
+            game->connectionFailed = true;
+            game->needsRedrawTop = true;
+        }
     }
     free(packet);
 }
@@ -383,6 +452,10 @@ void mqtt_ping() {
         if (res < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             close(mqtt_sock);
             mqtt_sock = -1; 
+            if (game) {
+                game->connectionFailed = true;
+                game->needsRedrawTop = true;
+            }
         } else {
             last_ping_time = now;
         }
@@ -539,16 +612,22 @@ static int recv_len = 0;
 
 void mqtt_poll() {
     if (mqtt_sock < 0) {
-        updateStatus("Reconnecting...");
-        mqtt_connect();
-        if (mqtt_sock >= 0) {
-            char topic_sub[64];
-            sprintf(topic_sub, "%s/Heartbeat/#", g_base_topic);
-            mqtt_subscribe(topic_sub);
-            if (game->inChat) {
-                char topic[64];
-                sprintf(topic, "%s/Picto/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
-                mqtt_subscribe(topic);
+        if (game && game->connectionFailed) return; // Warten auf SELECT-Tastendruck
+
+        u32 now = osGetTime();
+        if (now - last_reconnect_time > 5000 || last_reconnect_time == 0) {
+            last_reconnect_time = now;
+            updateStatus("Reconnecting...");
+            mqtt_connect();
+            if (mqtt_sock >= 0) {
+                char topic_sub[64];
+                sprintf(topic_sub, "%s/Heartbeat/#", g_base_topic);
+                mqtt_subscribe(topic_sub);
+                if (game->inChat) {
+                    char topic[64];
+                    sprintf(topic, "%s/Picto/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
+                    mqtt_subscribe(topic);
+                }
             }
         }
         return; 
@@ -660,6 +739,11 @@ void mqtt_poll() {
         close(mqtt_sock); 
         mqtt_sock = -1;
         recv_len = 0; 
+        // Verbindung wurde vom Server abgebrochen! Rote Warnung sofort auslösen.
+        if (game) {
+            game->connectionFailed = true;
+            game->needsRedrawTop = true;
+        }
     }
 }
 
@@ -933,7 +1017,7 @@ void renderTop() {
     
     u8 battery_raw = 0;
     MCUHWC_GetBatteryLevel(&battery_raw); 
-    if (battery_raw > 100) battery_raw = 100; // 
+    if (battery_raw > 100) battery_raw = 100; 
     
     u8 wifi = osGetWifiStrength();
     
@@ -975,7 +1059,6 @@ void renderTop() {
             C2D_DrawCircleSolid(start_x + 5.0f, 12.0f, 0.5f, 5.0f, connCol);
             C2D_DrawText(&t_conn, C2D_WithColor | C2D_AlignLeft, start_x + 15.0f, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         }
-        
         
         float wifi_x = 310; 
         float wifi_y = 17;
@@ -1090,7 +1173,6 @@ void renderTop() {
         C2D_Text t_num; C2D_TextParse(&t_num, g_dynBuf, header_num);
         C2D_DrawText(&t_num, C2D_WithColor | C2D_AlignLeft, 5 + tw + 15, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         
-        
         float wifi_x = 310;
         float wifi_y = 17;
         u32 wCol = C2D_Color32(200, 200, 200, 255);
@@ -1102,6 +1184,27 @@ void renderTop() {
         C2D_Text t_sys; C2D_TextParse(&t_sys, g_dynBuf, sysInfo);
         C2D_DrawText(&t_sys, C2D_WithColor | C2D_AlignRight, 395, 5, 0.5f, 0.6f, 0.6f, C2D_Color32(180, 180, 200, 255));
     }
+    
+    // Vollbild Warnung zeichnen, wenn der Server offline ist
+    if (game && game->connectionFailed) {
+        // Dunkler Hintergrund, der das gesamte Menü abdunkelt
+        C2D_DrawRectSolid(0, 0, 0.9f, 400, 240, C2D_Color32(20, 20, 25, 230));
+        
+        // Rotes Banner in der Mitte
+        C2D_DrawRectSolid(0, 80, 0.9f, 400, 80, C2D_Color32(180, 40, 40, 255));
+        C2D_DrawRectSolid(0, 80, 0.9f, 400, 3, C2D_Color32(255, 100, 100, 255));  
+        C2D_DrawRectSolid(0, 157, 0.9f, 400, 3, C2D_Color32(255, 100, 100, 255)); 
+
+        C2D_Text t_err1; C2D_TextParse(&t_err1, g_dynBuf, "Server Maintenance / Offline");
+        C2D_DrawText(&t_err1, C2D_WithColor | C2D_AlignCenter, 200, 95, 0.95f, 0.7f, 0.7f, C2D_Color32(255, 255, 255, 255));
+        
+        C2D_Text t_err2; C2D_TextParse(&t_err2, g_dynBuf, "For more info, please check our Discord.");
+        C2D_DrawText(&t_err2, C2D_WithColor | C2D_AlignCenter, 200, 120, 0.95f, 0.5f, 0.5f, C2D_Color32(255, 220, 220, 255));
+
+        C2D_Text t_err3; C2D_TextParse(&t_err3, g_dynBuf, "Press [SELECT] to retry connection");
+        C2D_DrawText(&t_err3, C2D_WithColor | C2D_AlignCenter, 200, 140, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 200, 200, 255));
+    }
+
     C3D_FrameEnd(0);
     game->needsRedrawTop = false;
 }
@@ -1217,7 +1320,7 @@ void renderBottom() {
         C2D_Text t_r3; C2D_TextParse(&t_r3, g_dynBuf, "3. Do not spam the chat.");
         C2D_DrawText(&t_r3, C2D_WithColor | C2D_AlignCenter, 160, 185, 0.5f, 0.5f, 0.5f, C2D_Color32(150, 150, 150, 255));
 
-        C2D_Text t_version; C2D_TextParse(&t_version, g_dynBuf, "v1.0  |  Beta Test ARLO");
+        C2D_Text t_version; C2D_TextParse(&t_version, g_dynBuf, "v1.0  |  report with !r username ");
         C2D_DrawText(&t_version, C2D_WithColor, 5, 220, 0.5f, 0.5f, 0.5f, C2D_Color32(80, 80, 90, 255));
     }
     C3D_FrameEnd(0);
@@ -1247,6 +1350,7 @@ int main(void) {
     
     game->autoScrollEnabled = true;
     game->isSyncing = true;
+    game->connectionFailed = false;
     snprintf(game->macAddress, sizeof(game->macAddress), "%012llX", fc_seed);
     
     decrypt_secrets();
@@ -1279,6 +1383,17 @@ int main(void) {
         u32 kUp = hidKeysUp();
         
         if (kDown & KEY_START) break;
+        
+        // --- Manueller Verbindungsversuch per SELECT-Taste ---
+        if (kDown & KEY_SELECT) {
+            if (game->connectionFailed || mqtt_sock < 0) {
+                game->connectionFailed = false;
+                last_reconnect_time = 0; // Erzwingt sofortigen Versuch in mqtt_poll()
+                updateStatus("Retrying...");
+                game->needsRedrawTop = true;
+            }
+        }
+        
         u32 currentTime = osGetTime();
         
         if (game->isSyncing && (currentTime - boot_time > 7000)) {
