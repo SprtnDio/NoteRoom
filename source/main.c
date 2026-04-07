@@ -155,14 +155,14 @@ int main(void) {
 
         if (mqtt_sock >= 0) {
             if (!game->trustedTimeValid && !game->ntpSyncInProgress) {
-                if (ntp_sync_time()) {
-                    updateStatus("NTP sync successful");
+                if (mqtt_sync_time()) {
+                    updateStatus("MQTT time sync successful");
                 }
             } else if (game->trustedTimeValid && (currentTime - game->lastNtpSyncTime) >= NTP_SYNC_INTERVAL_MS) {
                 if (!game->ntpSyncInProgress) {
-                    if (ntp_sync_time()) {
+                    if (mqtt_sync_time()) {
                         game->lastNtpSyncTime = currentTime;
-                        updateStatus("NTP re-sync OK");
+                        updateStatus("MQTT time re-sync OK");
                     }
                 }
             }

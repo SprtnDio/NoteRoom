@@ -35,78 +35,31 @@ char admin_banlist_topic[128];
 static u8 recv_buf[MAX_PAYLOAD_SIZE];
 static int recv_len = 0;
 
-typedef struct {
-    u8 li_vn_mode;
-    u8 stratum;
-    u8 poll;
-    u8 precision;
-    u32 rootDelay;
-    u32 rootDispersion;
-    u32 refId;
-    u32 refTm_s;
-    u32 refTm_f;
-    u32 origTm_s;
-    u32 origTm_f;
-    u32 rxTm_s;
-    u32 rxTm_f;
-    u32 txTm_s;
-    u32 txTm_f;
-} __attribute__((packed)) NtpPacket;
-
-bool ntp_sync_time() {
+// ====================================================================
+// NEU: MQTT‑basierte Zeitsynchronisation (ersetzt NTP)
+// ====================================================================
+bool mqtt_sync_time() {
     if (game->ntpSyncInProgress) return false;
     game->ntpSyncInProgress = true;
 
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) { game->ntpSyncInProgress = false; return false; }
+    char time_req_topic[128];
+    snprintf(time_req_topic, sizeof(time_req_topic), "%s/TimeRequest", g_base_topic);
+    mqtt_publish(time_req_topic, game->clientID, false);
 
-    struct hostent* host = gethostbyname(NTP_SERVER);
-    if (!host) { close(sock); game->ntpSyncInProgress = false; return false; }
-
-    struct sockaddr_in server;
-    memset(&server, 0, sizeof(server));
-    server.sin_family = AF_INET;
-    server.sin_port = htons(NTP_PORT);
-    server.sin_addr.s_addr = *((unsigned long*)host->h_addr_list[0]);
-
-    int flags = fcntl(sock, F_GETFL, 0);
-    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-
-    NtpPacket packet = {0};
-    packet.li_vn_mode = 0x1b;
-
-    int res = sendto(sock, &packet, sizeof(NtpPacket), 0, (struct sockaddr*)&server, sizeof(server));
-    if (res < 0) { close(sock); game->ntpSyncInProgress = false; return false; }
-
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(sock, &fds);
-    struct timeval tv = {NTP_TIMEOUT_MS / 1000, (NTP_TIMEOUT_MS % 1000) * 1000};
-    res = select(sock + 1, &fds, NULL, NULL, &tv);
-    if (res <= 0) { close(sock); game->ntpSyncInProgress = false; return false; }
-
-    socklen_t addrlen = sizeof(server);
-    res = recvfrom(sock, &packet, sizeof(NtpPacket), 0, (struct sockaddr*)&server, &addrlen);
-    if (res < sizeof(NtpPacket)) { close(sock); game->ntpSyncInProgress = false; return false; }
-
-    close(sock);
-
-    u32 txTm_s = ntohl(packet.txTm_s);
-    if (txTm_s == 0) { game->ntpSyncInProgress = false; return false; }
-
-    time_t unixTime = (time_t)(txTm_s - NTP_TIMESTAMP_DELTA);
-    if (unixTime > 0) {
-        game->trustedUnixTime = unixTime;
-        game->trustedTick = getMonotonicTick();
-        game->trustedTimeValid = true;
-        saveTrustedTime();
-        game->ntpSyncInProgress = false;
-        return true;
+    u64 start = osGetTime();
+    while (osGetTime() - start < 5000) {
+        mqtt_poll();                      
+        if (game->trustedTimeValid) {
+            game->ntpSyncInProgress = false;
+            return true;
+        }
+        svcSleepThread(10000000);         
     }
 
     game->ntpSyncInProgress = false;
     return false;
 }
+// ====================================================================
 
 int mqtt_encode_length(u8* buf, int length) {
     int len = 0;
@@ -215,20 +168,18 @@ void mqtt_connect() {
     packet[p++] = 'M'; packet[p++] = 'Q'; packet[p++] = 'T'; packet[p++] = 'T';
     packet[p++] = 0x04; 
     
-    u8 conn_flags = 0x02; // Clean Session
-    if (user_len > 0) conn_flags |= 0x80; // Username Flag
-    if (pass_len > 0) conn_flags |= 0x40; // Password Flag
+    u8 conn_flags = 0x02;
+    if (user_len > 0) conn_flags |= 0x80;
+    if (pass_len > 0) conn_flags |= 0x40;
     packet[p++] = conn_flags; 
     
-    packet[p++] = 0x00; packet[p++] = 0x3C; // Keep Alive 60
+    packet[p++] = 0x00; packet[p++] = 0x3C;
     
-    // Payload 1: Client ID
     packet[p++] = (client_len >> 8) & 0xFF;
     packet[p++] = client_len & 0xFF;
     memcpy(&packet[p], game->clientID, client_len);
     p += client_len;
 
-    // Payload 2: Username
     if (user_len > 0) {
         packet[p++] = (user_len >> 8) & 0xFF;
         packet[p++] = user_len & 0xFF;
@@ -236,7 +187,6 @@ void mqtt_connect() {
         p += user_len;
     }
 
-    // Payload 3: Password
     if (pass_len > 0) {
         packet[p++] = (pass_len >> 8) & 0xFF;
         packet[p++] = pass_len & 0xFF;
@@ -456,7 +406,20 @@ void mqtt_poll() {
                     char expected_vote[64];
                     snprintf(expected_vote, sizeof(expected_vote), "%s/Vote/", g_base_topic);
 
-                    if (strcmp(topic_str, admin_banlist_topic) == 0) {
+                    // NEU: TimeResponse empfangen
+                    char time_res_topic[128];
+                    snprintf(time_res_topic, sizeof(time_res_topic), "%s/ServerTime", g_base_topic);
+                    if (strcmp(topic_str, time_res_topic) == 0) {
+                        u64 receivedTs = 0;
+                        if (sscanf(payload, "%llu", &receivedTs) == 1 && receivedTs > 1700000000ULL) {
+                            game->trustedUnixTime = receivedTs;
+                            game->trustedTick = getMonotonicTick();
+                            game->trustedTimeValid = true;
+                            saveTrustedTime();
+                            updateStatus("Time synced via MQTT");
+                        }
+                    }
+                    else if (strcmp(topic_str, admin_banlist_topic) == 0) {
                         char* timestamp_str = strtok(payload, "|");
                         if (timestamp_str) {
                             u64 receivedTs = 0;
