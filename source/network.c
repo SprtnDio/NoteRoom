@@ -32,34 +32,11 @@ char admin_status_topic[128];
 char admin_announce_topic[128];
 char admin_banlist_topic[128];
 
+static char time_req_topic[128];
+static char time_res_topic[128];
+
 static u8 recv_buf[MAX_PAYLOAD_SIZE];
 static int recv_len = 0;
-
-// ====================================================================
-// NEU: MQTT‑basierte Zeitsynchronisation (ersetzt NTP)
-// ====================================================================
-bool mqtt_sync_time() {
-    if (game->ntpSyncInProgress) return false;
-    game->ntpSyncInProgress = true;
-
-    char time_req_topic[128];
-    snprintf(time_req_topic, sizeof(time_req_topic), "%s/TimeRequest", g_base_topic);
-    mqtt_publish(time_req_topic, game->clientID, false);
-
-    u64 start = osGetTime();
-    while (osGetTime() - start < 5000) {
-        mqtt_poll();                      
-        if (game->trustedTimeValid) {
-            game->ntpSyncInProgress = false;
-            return true;
-        }
-        svcSleepThread(10000000);         
-    }
-
-    game->ntpSyncInProgress = false;
-    return false;
-}
-// ====================================================================
 
 int mqtt_encode_length(u8* buf, int length) {
     int len = 0;
@@ -96,19 +73,19 @@ static int send_all(int sock, const void *buf, size_t len, int flags) {
 }
 
 void mqtt_connect() {
-    updateStatus("Connecting...");
+    updateStatus("Connecting...", C2D_Color32(200, 150, 50, 255));
     if (game) game->needsRedrawTop = true;
 
     struct hostent* host = gethostbyname(g_mqtt_broker);
     if (!host || host->h_addr_list[0] == NULL) {
-        updateStatus("DNS Error!");
+        updateStatus("DNS Error!", C2D_Color32(200, 50, 50, 255));
         if (game) game->connectionFailed = true;
         return;
     }
 
     mqtt_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (mqtt_sock < 0) {
-        updateStatus("Socket Error!");
+        updateStatus("Socket Error!", C2D_Color32(200, 50, 50, 255));
         if (game) game->connectionFailed = true;
         return;
     }
@@ -129,20 +106,20 @@ void mqtt_connect() {
             FD_ZERO(&wfds);
             FD_SET(mqtt_sock, &wfds);
             struct timeval tv;
-            tv.tv_sec = 5; 
+            tv.tv_sec = 5;
             tv.tv_usec = 0;
             int ret = select(mqtt_sock + 1, NULL, &wfds, NULL, &tv);
             if (ret <= 0) {
                 close(mqtt_sock);
                 mqtt_sock = -1;
-                updateStatus("Connect Timeout!");
+                updateStatus("Connect Timeout!", C2D_Color32(200, 50, 50, 255));
                 if (game) game->connectionFailed = true;
                 return;
             }
         } else {
             close(mqtt_sock);
             mqtt_sock = -1;
-            updateStatus("Connect Failed!");
+            updateStatus("Connect Failed!", C2D_Color32(200, 50, 50, 255));
             if (game) game->connectionFailed = true;
             return;
         }
@@ -150,10 +127,10 @@ void mqtt_connect() {
 
     fcntl(mqtt_sock, F_SETFL, flags & ~O_NONBLOCK);
 
-    u8 packet[256]; 
+    u8 packet[256];
     int p = 0;
     packet[p++] = 0x10;
-    
+
     int client_len = strlen(game->clientID);
     int user_len = strlen(g_mqtt_user);
     int pass_len = strlen(g_mqtt_pass);
@@ -163,18 +140,18 @@ void mqtt_connect() {
     if (pass_len > 0) rem_len += 2 + pass_len;
 
     p += mqtt_encode_length(&packet[p], rem_len);
-    
+
     packet[p++] = 0x00; packet[p++] = 0x04;
     packet[p++] = 'M'; packet[p++] = 'Q'; packet[p++] = 'T'; packet[p++] = 'T';
-    packet[p++] = 0x04; 
-    
+    packet[p++] = 0x04;
+
     u8 conn_flags = 0x02;
     if (user_len > 0) conn_flags |= 0x80;
     if (pass_len > 0) conn_flags |= 0x40;
-    packet[p++] = conn_flags; 
-    
+    packet[p++] = conn_flags;
+
     packet[p++] = 0x00; packet[p++] = 0x3C;
-    
+
     packet[p++] = (client_len >> 8) & 0xFF;
     packet[p++] = client_len & 0xFF;
     memcpy(&packet[p], game->clientID, client_len);
@@ -198,24 +175,24 @@ void mqtt_connect() {
     if (sent < 0) {
         close(mqtt_sock);
         mqtt_sock = -1;
-        updateStatus("Send Error!");
+        updateStatus("Send Error!", C2D_Color32(200, 50, 50, 255));
         if (game) game->connectionFailed = true;
         return;
     }
 
     fcntl(mqtt_sock, F_SETFL, flags | O_NONBLOCK);
 
-    updateStatus("Connected!");
+    updateStatus("Connected!", C2D_Color32(50, 200, 50, 255));
     last_ping_time = osGetTime();
     if (game) game->connectionFailed = false;
-    
+
     if (mqtt_sock >= 0) {
         char topic_sub[64];
         snprintf(topic_sub, sizeof(topic_sub), "%s/Heartbeat/#", g_base_topic);
         mqtt_subscribe(topic_sub);
-        
+
         mqtt_subscribe(admin_banlist_topic);
-        
+
         mqtt_subscribe(admin_reset_topic);
         mqtt_subscribe(admin_unban_topic);
         mqtt_subscribe(admin_ban_topic);
@@ -223,17 +200,19 @@ void mqtt_connect() {
         mqtt_subscribe(admin_list_req_topic);
         mqtt_subscribe(admin_status_topic);
         mqtt_subscribe(admin_announce_topic);
-        
+
+        mqtt_subscribe(time_res_topic);
+
         if (game->inChat) {
             char topic[64];
             snprintf(topic, sizeof(topic), "%s/Review/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
             mqtt_subscribe(topic);
-            
+
             char topic_vote[64];
             snprintf(topic_vote, sizeof(topic_vote), "%s/Vote/+/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
             mqtt_subscribe(topic_vote);
         }
-        
+
         lastBanSyncRequest = osGetTime() + 2000;
         banRequestSent = false;
     }
@@ -275,7 +254,7 @@ void mqtt_publish(const char* topic, const char* payload, bool retain) {
 
     u8* packet = (u8*)malloc(rem_len + 16);
     if (!packet) {
-        updateStatus("Memory Error!");
+        updateStatus("Memory Error!", C2D_Color32(200, 50, 50, 255));
         return;
     }
 
@@ -342,7 +321,7 @@ void mqtt_poll() {
         u64 now = osGetTime();
         if (now - last_reconnect_time > 5000 || last_reconnect_time == 0) {
             last_reconnect_time = now;
-            updateStatus("Reconnecting...");
+            updateStatus("Reconnecting...", C2D_Color32(200, 150, 50, 255));
             mqtt_connect();
         }
         return;
@@ -406,20 +385,7 @@ void mqtt_poll() {
                     char expected_vote[64];
                     snprintf(expected_vote, sizeof(expected_vote), "%s/Vote/", g_base_topic);
 
-                    // NEU: TimeResponse empfangen
-                    char time_res_topic[128];
-                    snprintf(time_res_topic, sizeof(time_res_topic), "%s/ServerTime", g_base_topic);
-                    if (strcmp(topic_str, time_res_topic) == 0) {
-                        u64 receivedTs = 0;
-                        if (sscanf(payload, "%llu", &receivedTs) == 1 && receivedTs > 1700000000ULL) {
-                            game->trustedUnixTime = receivedTs;
-                            game->trustedTick = getMonotonicTick();
-                            game->trustedTimeValid = true;
-                            saveTrustedTime();
-                            updateStatus("Time synced via MQTT");
-                        }
-                    }
-                    else if (strcmp(topic_str, admin_banlist_topic) == 0) {
+                    if (strcmp(topic_str, admin_banlist_topic) == 0) {
                         char* timestamp_str = strtok(payload, "|");
                         if (timestamp_str) {
                             u64 receivedTs = 0;
@@ -441,7 +407,7 @@ void mqtt_poll() {
                                     }
                                     lastBanChangeTime = receivedTs;
                                     saveBannedList();
-                                    
+
                                     if (isBanned(game->macAddress)) {
                                         if (game->inChat) {
                                             game->inChat = false;
@@ -457,14 +423,24 @@ void mqtt_poll() {
                                         getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
                                         char msg[64];
                                         snprintf(msg, sizeof(msg), "BANNED: %s", timeStr);
-                                        updateStatus(msg);
+                                        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
                                     } else {
-                                        updateStatus("Banlist synced from server!");
+                                        updateStatus("Banlist synced from server!", C2D_Color32(50, 200, 50, 255));
                                     }
                                 }
                             }
                         }
                         if (game) game->needsRedrawTop = true;
+                    }
+                    else if (strcmp(topic_str, time_res_topic) == 0) {
+                        u64 receivedTs = 0;
+                        if (sscanf(payload, "%llu", &receivedTs) == 1 && receivedTs > 1700000000ULL) {
+                            game->trustedUnixTime = receivedTs;
+                            game->trustedTick = getMonotonicTick();
+                            game->trustedTimeValid = true;
+                            saveTrustedTime();
+                            updateStatus("Time synced via MQTT", C2D_Color32(50, 200, 50, 255));
+                        }
                     }
                     else if (strncmp(topic_str, g_base_topic, strlen(g_base_topic)) == 0) {
                         if (strcmp(topic_str, admin_reset_topic) == 0 ||
@@ -525,7 +501,7 @@ void mqtt_poll() {
                                                 if(len>19) len=19;
                                                 snprintf(vMac, sizeof(vMac), "%.*s", len, payload);
                                                 vVal = atoi(p1 + 1);
-                                                
+
                                                 bool already = false;
                                                 for (int v = 0; v < game->votedCount; v++) {
                                                     if (strcmp(game->votedMacs[v], vMac) == 0) { already = true; break; }
@@ -544,13 +520,13 @@ void mqtt_poll() {
                                         if (!isBanned(targetMac)) {
                                             time_t banEnd = getTrustedTime() + BAN_DURATION_SECONDS;
                                             if (addBanEntry(targetMac, "VoteBanned", banEnd)) {
-                                                updateStatus("User was banned for 48 hours!");
+                                                updateStatus("User was banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
                                             }
                                         }
                                         if (strcmp(targetMac, game->macAddress) == 0) {
                                             game->inChat = false;
                                             game->appState = STATE_MAIN_MENU;
-                                            updateStatus("You were Vote-Banned for 48 hours!");
+                                            updateStatus("You were Vote-Banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
                                         } else {
                                             for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
                                                 if(strcmp(game->activeUsers[game->selectedCategoryIdx][game->selectedSubIdx][u].mac, targetMac) == 0) {
@@ -662,7 +638,7 @@ void handle_admin_command(const char* topic, const char* payload) {
             bannedCount = 0;
             lastBanChangeTime = (u64)getTrustedTime();
             saveBannedList();
-            updateStatus("Ban list reset by admin");
+            updateStatus("Ban list reset by admin", C2D_Color32(200, 50, 50, 255));
         }
     }
     else if (strcmp(topic, admin_kick_topic) == 0) {
@@ -677,7 +653,7 @@ void handle_admin_command(const char* topic, const char* payload) {
                         if (game->inChat) {
                             game->inChat = false;
                             game->appState = STATE_MAIN_MENU;
-                            updateStatus("KICKED by admin");
+                            updateStatus("KICKED by admin", C2D_Color32(200, 50, 50, 255));
                             char hb_topic[64];
                             snprintf(hb_topic, sizeof(hb_topic), "%s/Heartbeat/C%d/S%d",
                                      g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
@@ -725,7 +701,7 @@ void handle_admin_command(const char* topic, const char* payload) {
                         lastBanChangeTime = (u64)getTrustedTime();
                         saveBannedList();
                         if (strcmp(mac, game->macAddress) == 0) {
-                            updateStatus("You were UNBANNED!");
+                            updateStatus("You were UNBANNED!", C2D_Color32(50, 200, 50, 255));
                         }
                     }
                 }
@@ -741,7 +717,36 @@ void handle_admin_command(const char* topic, const char* payload) {
                 *msg = '\0';
                 msg++;
                 if (strcmp(token, admin_token) == 0) {
-                    updateStatus(msg);
+                    char *lobby = strchr(msg, '|');
+                    if (lobby) {
+                        *lobby = '\0';
+                        lobby++;
+                        char currentLobby[16];
+                        snprintf(currentLobby, sizeof(currentLobby), "C%d/S%d", game->selectedCategoryIdx, game->selectedSubIdx);
+                        if (strcmp(msg, currentLobby) == 0) {
+                            u32 color = C2D_Color32(200, 50, 50, 255);
+                            if (lobby[0] == '[' && lobby[1] == '#' && strlen(lobby) > 8 && lobby[8] == ']') {
+                                int r,g,b;
+                                if (sscanf(lobby, "[#%02x%02x%02x]", &r, &g, &b) == 3 ||
+                                    sscanf(lobby, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
+                                    color = C2D_Color32(r, g, b, 255);
+                                    lobby += 9;
+                                }
+                            }
+                            updateStatus(lobby, color);
+                        }
+                    } else {
+                        u32 color = C2D_Color32(200, 50, 50, 255);
+                        if (msg[0] == '[' && msg[1] == '#' && strlen(msg) > 8 && msg[8] == ']') {
+                            int r,g,b;
+                            if (sscanf(msg, "[#%02x%02x%02x]", &r, &g, &b) == 3 ||
+                                sscanf(msg, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
+                                color = C2D_Color32(r, g, b, 255);
+                                msg += 9;
+                            }
+                        }
+                        updateStatus(msg, color);
+                    }
                 }
             }
             free(token);
@@ -753,7 +758,7 @@ void handle_admin_command(const char* topic, const char* payload) {
             if (list_payload) {
                 int offset = snprintf(list_payload, 4096, "%s|%llu|", admin_token, lastBanChangeTime);
                 for(int i=0; i<bannedCount; i++) {
-                    int written = snprintf(list_payload + offset, 4096 - offset, "%s,%s,%lld|", 
+                    int written = snprintf(list_payload + offset, 4096 - offset, "%s,%s,%lld|",
                         bannedUsers[i].mac, bannedUsers[i].name, (long long)bannedUsers[i].banEnd);
                     if (written > 0) offset += written;
                     if (offset >= 4090) break;

@@ -15,6 +15,9 @@
 
 static u32 *SOC_buffer = NULL;
 
+// Globale Pfade (werden in game.c definiert, aber hier deklariert)
+extern char save_file_path[64];
+
 int main(void) {
     gfxInitDefault();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 4);
@@ -48,6 +51,7 @@ int main(void) {
     snprintf(ban_file_path, sizeof(ban_file_path), "sdmc:/3ds/NoteRoom/%s", ban_name);
     snprintf(time_file_path, sizeof(time_file_path), "sdmc:/3ds/NoteRoom/%s", time_name);
     snprintf(user_file_path, sizeof(user_file_path), "sdmc:/3ds/NoteRoom/%s", user_name);
+    snprintf(save_file_path, sizeof(save_file_path), "sdmc:/3ds/NoteRoom/drawings.bin");
 
     decrypt_string(admin_token, ENC_ADMIN_TOKEN, ADMIN_TOKEN_LEN, 0xAA);
 
@@ -75,6 +79,7 @@ int main(void) {
     loadTrustedTime();
     loadBannedList();
     cleanExpiredBans();
+    loadDrawingsFromSD();  // NEU
 
     game->autoScrollEnabled = true;
     game->isSyncing = true;
@@ -90,6 +95,8 @@ int main(void) {
     lastBanSyncRequest = 0;
     game->ntpSyncInProgress = false;
     game->lastNtpSyncTime = 0;
+    game->statusColor = C2D_Color32(200, 50, 50, 255);  // NEU
+    game->lastTimeSyncRequest = 0;                     // NEU
     snprintf(game->macAddress, sizeof(game->macAddress), "%012llX", fc_seed);
 
     game->penSizes[0] = 2.0f; game->penSizes[1] = 4.0f; game->penSizes[2] = 8.0f;
@@ -145,7 +152,7 @@ int main(void) {
                 game->connectionFailed = false;
                 last_reconnect_time = 0;
                 banRequestSent = false;
-                updateStatus("Retrying...");
+                updateStatus("Retrying...", C2D_Color32(200, 150, 50, 255));
                 game->needsRedrawTop = true;
                 game->needsRedrawBottom = true;
             }
@@ -153,17 +160,14 @@ int main(void) {
 
         u64 currentTime = osGetTime();
 
+        // MQTT‑Zeitsynchronisation (ersetzt NTP)
         if (mqtt_sock >= 0) {
-            if (!game->trustedTimeValid && !game->ntpSyncInProgress) {
-                if (mqtt_sync_time()) {
-                    updateStatus("MQTT time sync successful");
-                }
-            } else if (game->trustedTimeValid && (currentTime - game->lastNtpSyncTime) >= NTP_SYNC_INTERVAL_MS) {
-                if (!game->ntpSyncInProgress) {
-                    if (mqtt_sync_time()) {
-                        game->lastNtpSyncTime = currentTime;
-                        updateStatus("MQTT time re-sync OK");
-                    }
+            if (!game->trustedTimeValid || (currentTime - game->lastTimeSyncRequest) >= (6 * 60 * 60 * 1000)) {
+                if (currentTime - game->lastTimeSyncRequest > 5000) {
+                    char time_req_topic[128];
+                    snprintf(time_req_topic, sizeof(time_req_topic), "%s/TimeRequest", g_base_topic);
+                    mqtt_publish(time_req_topic, game->clientID, false);
+                    game->lastTimeSyncRequest = currentTime;
                 }
             }
         }
@@ -173,14 +177,15 @@ int main(void) {
             last_cleanup_time = currentTime;
         }
 
-        if (game->inChat && isBanned(game->macAddress)) {
+        // Bann‑Prüfung auch für Save/Load-Menüs
+        if ((game->inChat || game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) && isBanned(game->macAddress)) {
             game->inChat = false;
             game->appState = STATE_MAIN_MENU;
             char timeStr[16];
             getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
             char msg[64];
             snprintf(msg, sizeof(msg), "BANNED: %s", timeStr);
-            updateStatus(msg);
+            updateStatus(msg, C2D_Color32(200, 50, 50, 255));
             char hb_topic[64];
             snprintf(hb_topic, sizeof(hb_topic), "%s/Heartbeat/C%d/S%d",
                      g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
@@ -216,6 +221,7 @@ int main(void) {
             }
         }
 
+        // Hauptmenü
         if (game->appState == STATE_MAIN_MENU) {
             if (kDown & KEY_UP) { game->selectedCategoryIdx = (game->selectedCategoryIdx - 1 + CATEGORY_COUNT) % CATEGORY_COUNT; game->needsRedrawTop = true; game->needsRedrawBottom = true;}
             if (kDown & KEY_DOWN) { game->selectedCategoryIdx = (game->selectedCategoryIdx + 1) % CATEGORY_COUNT; game->needsRedrawTop = true; game->needsRedrawBottom = true;}
@@ -226,7 +232,7 @@ int main(void) {
                         getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
                         char msg[64];
                         snprintf(msg, sizeof(msg), "BANNED: %s", timeStr);
-                        updateStatus(msg);
+                        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
                     } else {
                         game->selectedSubIdx = 0;
                         game->appState = STATE_SUB_MENU;
@@ -243,13 +249,14 @@ int main(void) {
                 game->needsRedrawBottom = true;
             }
         }
+        // Untermenü (Sub‑Rooms)
         else if (game->appState == STATE_SUB_MENU) {
             if (kDown & KEY_UP) { game->selectedSubIdx = (game->selectedSubIdx - 1 + SUB_ROOM_COUNTS[game->selectedCategoryIdx]) % SUB_ROOM_COUNTS[game->selectedCategoryIdx]; game->needsRedrawTop = true; game->needsRedrawBottom = true; }
             if (kDown & KEY_DOWN) { game->selectedSubIdx = (game->selectedSubIdx + 1) % SUB_ROOM_COUNTS[game->selectedCategoryIdx]; game->needsRedrawTop = true; game->needsRedrawBottom = true; }
             if (kDown & KEY_B) { game->appState = STATE_MAIN_MENU; game->needsRedrawTop = true; game->needsRedrawBottom = true; }
             if (kDown & KEY_A) {
                 if (getActiveUserCount(game->selectedCategoryIdx, game->selectedSubIdx) >= LOBBY_MAX_USERS) {
-                    updateStatus("Lobby is FULL!");
+                    updateStatus("Lobby is FULL!", C2D_Color32(200, 50, 50, 255));
                 } else {
                     cleanExpiredBans();
                     if (isBanned(game->macAddress)) {
@@ -257,7 +264,7 @@ int main(void) {
                         getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
                         char msg[64];
                         snprintf(msg, sizeof(msg), "BANNED: %s", timeStr);
-                        updateStatus(msg);
+                        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
                     } else {
                         game->appState = STATE_CHAT;
                         game->inChat = true;
@@ -277,6 +284,7 @@ int main(void) {
                 }
             }
         }
+        // Chat / Zeichenmodus
         else if (game->appState == STATE_CHAT) {
             if (kDown & KEY_B) {
                 if (game->voteActive && !game->iHaveVoted) {
@@ -351,12 +359,12 @@ int main(void) {
                             char reqPayload[128];
                             snprintf(reqPayload, sizeof(reqPayload), "%s|%s|VOTE_KICK_REQUEST", game->voteTargetMac, game->voteTargetName);
                             mqtt_publish(reqTopic, reqPayload, false);
-                            updateStatus("Vote success - Request sent to Admin!");
+                            updateStatus("Vote success - Request sent to Admin!", C2D_Color32(50, 200, 50, 255));
                         } else {
-                            updateStatus("Vote failed - Not enough votes!");
+                            updateStatus("Vote failed - Not enough votes!", C2D_Color32(200, 50, 50, 255));
                         }
                     } else {
-                        updateStatus("Waiting for vote result...");
+                        updateStatus("Waiting for vote result...", C2D_Color32(200, 150, 50, 255));
                     }
                     game->voteActive = false;
                     game->needsRedrawTop = true;
@@ -418,7 +426,7 @@ int main(void) {
                         ActiveUser* target = getActiveUserByIndex(game->selectedCategoryIdx, game->selectedSubIdx, game->uiSelectedUserIdx);
                         if (target && strcmp(target->mac, game->macAddress) != 0 && strlen(target->mac) > 0) {
                             if (isBanned(target->mac)) {
-                                updateStatus("User already banned!");
+                                updateStatus("User already banned!", C2D_Color32(200, 150, 50, 255));
                             } else {
                                 game->showBanConfirm = true;
                                 snprintf(game->voteTargetMac, sizeof(game->voteTargetMac), "%s", target->mac);
@@ -426,7 +434,7 @@ int main(void) {
                                 game->needsRedrawTop = true;
                             }
                         } else if (target && strcmp(target->mac, game->macAddress) == 0) {
-                            updateStatus("You cannot vote yourself!");
+                            updateStatus("You cannot vote yourself!", C2D_Color32(200, 50, 50, 255));
                         }
                     }
                 }
@@ -442,7 +450,7 @@ int main(void) {
                                 loadDrawingFromMessage(&room->messages[i]);
                                 game->selectedDrawingIdx = i;
                             } else {
-                                updateStatus("Drawing too large!");
+                                updateStatus("Drawing too large!", C2D_Color32(200, 50, 50, 255));
                             }
                             break;
                         }
@@ -458,7 +466,7 @@ int main(void) {
                                 loadDrawingFromMessage(&room->messages[i]);
                                 game->selectedDrawingIdx = i;
                             } else {
-                                updateStatus("Drawing too large!");
+                                updateStatus("Drawing too large!", C2D_Color32(200, 50, 50, 255));
                             }
                             break;
                         }
@@ -467,13 +475,16 @@ int main(void) {
                     game->needsRedrawTop = true;
                 }
             }
+        } // Ende STATE_CHAT
 
-            if (kHeld & KEY_TOUCH) {
-                touchPosition touch;
-                hidTouchRead(&touch);
+        // Touch‑Eingaben
+        if (kHeld & KEY_TOUCH) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+            if (game->appState == STATE_CHAT) {
                 if (touch.py >= SECOND_BAR_Y && touch.py < TOOLBAR_Y_START) {
-                    if (touch.px >= 64 && touch.px < 256) {
-                        float val = (float)(touch.px - 90) / 140.0f;
+                    if (touch.px >= 64 && touch.px < 224) {
+                        float val = (float)(touch.px - (64 + 20)) / 120.0f;
                         if (val < 0.0f) val = 0.0f;
                         if (val > 1.0f) val = 1.0f;
                         float newSize = 1.0f + val * 9.0f;
@@ -489,12 +500,53 @@ int main(void) {
                     handleDrawingTouch(touch, currentTime);
                 }
             }
-            if (kUp & KEY_TOUCH) {
-                finishDrawingStroke();
+        }
+
+        if (kUp & KEY_TOUCH) {
+            if (game->appState == STATE_CHAT) finishDrawingStroke();
+        }
+
+        if ((kDown & KEY_TOUCH)) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+
+            // Save/Load Menü
+            if (game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) {
+                if (touch.px >= 100 && touch.px <= 220 && touch.py >= 210 && touch.py <= 230) {
+                    game->appState = STATE_CHAT;
+                    game->needsRedrawBottom = true;
+                } else {
+                    int slotW = 66, slotH = 46, padX = 8, padY = 8, startX = 16, startY = 35;
+                    for (int i=0; i<MAX_SAVE_SLOTS; i++) {
+                        int row = i / 4; int col = i % 4;
+                        int x = startX + col * (slotW + padX);
+                        int y = startY + row * (slotH + padY);
+                        if (touch.px >= x && touch.px <= x + slotW && touch.py >= y && touch.py <= y + slotH) {
+                            if (game->appState == STATE_SAVE_MENU) {
+                                saveSnapshot(&game->savedDrawings[i], game->userDrawing, game->userDrawingCount, game->userStrokeStarts, game->userStrokeCount);
+                                game->slotInUse[i] = true;
+                                saveDrawingsToSD();
+                                updateStatus("Drawing Saved!", C2D_Color32(50, 200, 50, 255));
+                                game->appState = STATE_CHAT;
+                                game->needsRedrawBottom = true;
+                            } else {
+                                if (game->slotInUse[i]) {
+                                    saveUndoState();
+                                    loadSnapshot(&game->savedDrawings[i], game->userDrawing, &game->userDrawingCount, game->userStrokeStarts, &game->userStrokeCount);
+                                    updateStatus("Drawing Loaded!", C2D_Color32(50, 200, 50, 255));
+                                    game->hasUnsavedDrawing = true;
+                                    game->appState = STATE_CHAT;
+                                    game->needsRedrawBottom = true;
+                                    game->needsRedrawTop = true;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
             }
-            if ((kDown & KEY_TOUCH)) {
-                touchPosition touch;
-                hidTouchRead(&touch);
+            // Chat Touch
+            else if (game->appState == STATE_CHAT) {
                 if (touch.py >= TOOLBAR_Y_START) {
                     if (touch.px < 64) {
                         saveUndoState();
@@ -527,6 +579,8 @@ int main(void) {
                 }
                 else if (touch.py >= SECOND_BAR_Y && touch.py < TOOLBAR_Y_START) {
                     if (touch.px < 64) {
+                        // Pfeilbereich (UNDO/REDO)
+                        RoomChat* room = &game->rooms[game->selectedCategoryIdx][game->selectedSubIdx];
                         if (touch.py < SECOND_BAR_Y + 13) {
                             int idx = game->selectedDrawingIdx;
                             if (idx < 0) idx = room->messageCount;
@@ -554,12 +608,16 @@ int main(void) {
                         game->needsRedrawBottom = true;
                         game->needsRedrawTop = true;
                     }
-                    else if (touch.px >= 256) {
-                        game->autoScrollEnabled = !game->autoScrollEnabled;
+                    else if (touch.px >= 224 && touch.px < 272) {
+                        game->appState = STATE_SAVE_MENU;
                         game->needsRedrawBottom = true;
                     }
-                    else {
-                        float val = (float)(touch.px - 90) / 140.0f;
+                    else if (touch.px >= 272) {
+                        game->appState = STATE_LOAD_MENU;
+                        game->needsRedrawBottom = true;
+                    }
+                    else if (touch.px >= 64 && touch.px < 224) {
+                        float val = (float)(touch.px - (64 + 20)) / 120.0f;
                         if (val < 0.0f) val = 0.0f;
                         if (val > 1.0f) val = 1.0f;
                         float newSize = 1.0f + val * 9.0f;
@@ -572,7 +630,10 @@ int main(void) {
                     }
                 }
             }
+        }
 
+        // Tasten L / R / Y im Chat
+        if (game->appState == STATE_CHAT) {
             if (kDown & KEY_L) {
                 if (game->undoCount > 0) {
                     if (game->redoCount < MAX_UNDO_STEPS) {
@@ -609,7 +670,8 @@ int main(void) {
         mqtt_ping();
 
         time_t now = time(NULL);
-        if (game->inChat && (now - last_hb_time >= 15)) {
+        // Heartbeat auch in Save/Load-Menüs senden
+        if ((game->inChat || game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) && (now - last_hb_time >= 15)) {
             char hb_topic[64];
             snprintf(hb_topic, sizeof(hb_topic), "%s/Heartbeat/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
             char hb_payload[128];

@@ -59,6 +59,35 @@ void decode_drawing(const char* payload) {
 
     if (isBanned(senderMac)) return;
     if (colorIdx < 0 || colorIdx >= NUM_USER_COLORS) colorIdx = 0;
+
+    if (strcmp(senderName, "ServerAdmin") == 0) {
+        const char* content = firstPipe + 1;
+        if (strncmp(content, "TEXT:", 5) == 0) {
+            char* text = (char*)content + 5;
+            u32 color = C2D_Color32(200, 50, 50, 255);
+            bool is_banner = false;
+
+            if (text[0] == '[' && text[1] == '#' && strlen(text) > 8 && text[8] == ']') {
+                int r=0, g=0, b=0;
+                if (sscanf(text, "[#%02x%02x%02x]", &r, &g, &b) == 3 || sscanf(text, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
+                    color = C2D_Color32(r, g, b, 255);
+                    text += 9;
+                }
+            }
+
+            if (strstr(text, " joined") || strstr(text, " left") || strstr(text, "Slowmode") || strstr(text, "Spam")) {
+                is_banner = true;
+            }
+
+            if (is_banner) {
+                updateStatus(text, color);
+            } else {
+                addMessage(senderName, 0, text, false, NULL, 0, NULL, 0);
+            }
+        }
+        return;
+    }
+
     if (strcmp(senderName, game->userName) == 0 && strcmp(senderName, "ServerAdmin") != 0) return;
 
     const char* content = firstPipe + 1;
@@ -161,7 +190,7 @@ bool applyVertexPulling(Point* p1, Point* p2, float cx, float cy, float eraserRa
                 p2->y = (u16)ny;
                 if (p2->type < 252) p2->type = 253;
             } else {
-                if (p2->type < 252) p2->type = 255; 
+                if (p2->type < 252) p2->type = 255;
             }
             return true;
         } else if (p1In && !p2In) {
@@ -188,7 +217,7 @@ bool applyVertexPulling(Point* p1, Point* p2, float cx, float cy, float eraserRa
 }
 
 void compactDrawingArray() {
-    static Point temp[MAX_INK_LIMIT * 3]; 
+    static Point temp[MAX_INK_LIMIT * 3];
     int tempCount = 0;
     for (int i = 0; i < game->userDrawingCount; i++) {
         if (game->userDrawing[i].x == 0xFFFF || game->userDrawing[i].type == 255) {
@@ -235,7 +264,7 @@ void compactDrawingArray() {
         } else {
             bool prevIsSep = (i == 0 || temp[i-1].x == 0xFFFF);
             bool nextIsSep = (i == tempCount - 1 || temp[i+1].x == 0xFFFF);
-            if (!prevIsSep || !nextIsSep) { 
+            if (!prevIsSep || !nextIsSep) {
                 if (finalCount < MAX_INK_LIMIT) {
                     finalArr[finalCount++] = temp[i];
                 }
@@ -307,7 +336,7 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
         }
         return;
     }
-    
+
     u8 closestSizeIdx = (game->currentPenSize >= 6.0f) ? 2 : ((game->currentPenSize >= 3.0f) ? 1 : 0);
 
     if (!game->isDrawing) {
@@ -360,7 +389,7 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
                     .type = 0,
                     .sizeIdx = closestSizeIdx,
                     .color = color,
-                    .thickness = game->currentPenSize 
+                    .thickness = game->currentPenSize
                 };
             }
             game->hasUnsavedDrawing = true;
@@ -390,7 +419,7 @@ void finishDrawingStroke() {
             } else if (lastStored.x != 0xFFFF) {
                 if (game->userDrawingCount < MAX_INK_LIMIT - 2) {
                     Point dup = lastStored;
-                    dup.x += 1; 
+                    dup.x += 1;
                     game->userDrawing[game->userDrawingCount++] = dup;
                 }
             }
@@ -406,7 +435,7 @@ void finishDrawingStroke() {
 void loadDrawingFromMessage(ChatMessage* msg) {
     if (!msg || !msg->isDrawing || !msg->drawingData || msg->drawingCount == 0) return;
     if (msg->drawingCount > MAX_INK_LIMIT) {
-        updateStatus("Drawing too large to load!");
+        updateStatus("Drawing too large to load!", C2D_Color32(200, 50, 50, 255));
         return;
     }
     saveUndoState();
@@ -441,45 +470,45 @@ void sendDrawing() {
         getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
         char msg[64];
         snprintf(msg, sizeof(msg), "Banned for %sh", timeStr);
-        updateStatus(msg);
+        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
         return;
     }
     u64 now = osGetTime();
     if (now - game->lastSendTime < 5000) {
-        updateStatus("Wait 5 seconds to send!");
+        updateStatus("Wait 5 seconds to send!", C2D_Color32(200, 150, 50, 255));
         return;
     }
     int requiredPoints = (MAX_INK_LIMIT * 1) / 100;
     if (game->userDrawingCount < requiredPoints) {
-        updateStatus("Use at least 5% ink!");
+        updateStatus("Use at least 5% ink!", C2D_Color32(200, 150, 50, 255));
         return;
     }
     if (game->userDrawingCount <= 0) {
-        updateStatus("No drawing to send!");
+        updateStatus("No drawing to send!", C2D_Color32(200, 50, 50, 255));
         return;
     }
     if (!drawing_has_real_point()) {
-        updateStatus("No points in drawing!");
+        updateStatus("No points in drawing!", C2D_Color32(200, 50, 50, 255));
         game->userDrawingCount = 0; game->userStrokeCount = 0; game->needsRedrawBottom = true;
         return;
     }
     sendInProgress = true;
-    updateStatus("Sending...");
+    updateStatus("Sending...", C2D_Color32(200, 150, 50, 255));
     int payloadSize = strlen(game->userName) + 50 + (game->userDrawingCount * 11) + 1;
     if (payloadSize > MAX_PAYLOAD_SIZE) {
-        updateStatus("Too large!");
+        updateStatus("Too large!", C2D_Color32(200, 50, 50, 255));
         game->userDrawingCount = 0; game->userStrokeCount = 0; game->needsRedrawBottom = true;
         sendInProgress = false;
         return;
     }
     char* payload = (char*)malloc(payloadSize);
-    if (!payload) { updateStatus("Memory Error!"); sendInProgress = false; return; }
+    if (!payload) { updateStatus("Memory Error!", C2D_Color32(200, 50, 50, 255)); sendInProgress = false; return; }
     int written = snprintf(payload, payloadSize, "%s#%d#%s|", game->userName, game->userColorIdx, game->macAddress);
     char* dest = payload + written;
     for(int i = 0; i < game->userDrawingCount; i++) {
         Point p = game->userDrawing[i];
-        if(p.x == 0xFFFF) { 
-            dest += snprintf(dest, payloadSize - (dest - payload), "FFFFFFFF00"); 
+        if(p.x == 0xFFFF) {
+            dest += snprintf(dest, payloadSize - (dest - payload), "FFFFFFFF00");
         } else {
             u8 prop = (p.color << 3) | (p.sizeIdx << 1) | (p.type & 0x1);
             dest += snprintf(dest, payloadSize - (dest - payload), "%02X%02X%02X%02X%02X",
@@ -495,6 +524,28 @@ void sendDrawing() {
     game->undoCount = 0; game->redoCount = 0;
     game->hasUnsavedDrawing = false; game->needsRedrawBottom = true;
     game->lastSendTime = now;
-    updateStatus("Sent!");
+    updateStatus("Sent!", C2D_Color32(50, 100, 255, 255));
     sendInProgress = false;
+}
+
+void saveDrawingsToSD(void) {
+    ensureDirectoriesExist();
+    FILE* f = fopen(save_file_path, "wb");
+    if (f) {
+        fwrite(game->slotInUse, sizeof(bool), MAX_SAVE_SLOTS, f);
+        fwrite(game->savedDrawings, sizeof(DrawingSnapshot), MAX_SAVE_SLOTS, f);
+        fclose(f);
+    }
+}
+
+void loadDrawingsFromSD(void) {
+    ensureDirectoriesExist();
+    FILE* f = fopen(save_file_path, "rb");
+    if (f) {
+        fread(game->slotInUse, sizeof(bool), MAX_SAVE_SLOTS, f);
+        fread(game->savedDrawings, sizeof(DrawingSnapshot), MAX_SAVE_SLOTS, f);
+        fclose(f);
+    } else {
+        for(int i=0; i<MAX_SAVE_SLOTS; i++) game->slotInUse[i] = false;
+    }
 }

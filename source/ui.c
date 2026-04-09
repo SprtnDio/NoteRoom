@@ -44,13 +44,40 @@ u32 getPointColor(Point p) {
     return USER_COLORS[0];
 }
 
-void updateStatus(const char* t) {
+void updateStatus(const char* t, u32 color) {
     if (game) {
         snprintf(game->statusMsg, sizeof(game->statusMsg), "%s", t);
-        game->statusMsgTimer = osGetTime() + 2000;
+        game->statusColor = color;
+        game->statusMsgTimer = osGetTime() + 2500;
         game->needsRedrawTop = true;
         game->needsRedrawBottom = true;
         game->lastNetworkActivity = osGetTime();
+    }
+}
+
+void renderSnapshotPreview(DrawingSnapshot* snap, float startX, float startY, float width, float height) {
+    if (!snap || snap->pointCount < 2) return;
+    float canvasW = 320.0f;
+    float canvasH = (float)(DRAWING_AREA_BOTTOM - DRAWING_AREA_TOP);
+    float scaleX = width / canvasW;
+    float scaleY = height / canvasH;
+    float scale = (scaleX < scaleY) ? scaleX : scaleY;
+    float offsetX = startX + (width - (canvasW * scale)) / 2.0f;
+    float offsetY = startY + (height - (canvasH * scale)) / 2.0f;
+
+    for (int j = 1; j < snap->pointCount; j++) {
+        Point p1 = snap->points[j-1];
+        Point p2 = snap->points[j];
+        if (p1.x != 0xFFFF && p2.x != 0xFFFF) {
+            float displaySize = p2.thickness * scale;
+            if (displaySize < 1.0f) displaySize = 1.0f;
+            u32 col = (p2.type == 1) ? C2D_Color32(50, 50, 55, 255) : getPointColor(p2);
+            float x1 = offsetX + (float)p1.x * scale;
+            float y1 = offsetY + (float)(p1.y - DRAWING_AREA_TOP) * scale;
+            float x2 = offsetX + (float)p2.x * scale;
+            float y2 = offsetY + (float)(p2.y - DRAWING_AREA_TOP) * scale;
+            C2D_DrawLine(x1, y1, col, x2, y2, col, displaySize, 0.5f);
+        }
     }
 }
 
@@ -168,25 +195,13 @@ void drawDrawingToolbar() {
     C2D_Text t_redo;
     C2D_TextParse(&t_redo, g_dynBuf, "R=Redo");
     C2D_DrawText(&t_redo, C2D_WithColor | C2D_AlignRight, 315, 6, 0.5f, 0.6f, 0.6f, C2D_Color32(200, 200, 200, 255));
-    char ascStr[32];
-    snprintf(ascStr, sizeof(ascStr), "Y=Scroll");
-    C2D_Text t_asc;
-    C2D_TextParse(&t_asc, g_dynBuf, ascStr);
-    float w_asc, h_asc;
-    C2D_TextGetDimensions(&t_asc, 0.5f, 0.6f, &w_asc, &h_asc);
-    float currentSize = game->isEraser ? game->currentEraserSize : game->currentPenSize;
+
     char xStr[32];
-    snprintf(xStr, sizeof(xStr), "X=%.1fpx", currentSize);
+    float currentSize = game->isEraser ? game->currentEraserSize : game->currentPenSize;
+    snprintf(xStr, sizeof(xStr), "Size=%.1fpx", currentSize);
     C2D_Text t_x;
     C2D_TextParse(&t_x, g_dynBuf, xStr);
-    float w_x, h_x;
-    C2D_TextGetDimensions(&t_x, 0.5f, 0.6f, &w_x, &h_x);
-    float gap = 15.0f;
-    float total_w = w_asc + gap + w_x;
-    float start_x = 160.0f - (total_w / 2.0f);
-    u32 ascCol = game->autoScrollEnabled ? C2D_Color32(50, 255, 50, 255) : C2D_Color32(255, 50, 50, 255);
-    C2D_DrawText(&t_asc, C2D_WithColor | C2D_AlignLeft, start_x, 6, 0.5f, 0.6f, 0.6f, ascCol);
-    C2D_DrawText(&t_x, C2D_WithColor | C2D_AlignLeft, start_x + w_asc + gap, 6, 0.5f, 0.6f, 0.6f, C2D_Color32(100, 180, 255, 255));
+    C2D_DrawText(&t_x, C2D_WithColor | C2D_AlignCenter, 160, 6, 0.5f, 0.6f, 0.6f, C2D_Color32(100, 180, 255, 255));
 }
 
 void sendTextMessage(const char* text) {
@@ -196,13 +211,13 @@ void sendTextMessage(const char* text) {
         getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
         char msg[64];
         snprintf(msg, sizeof(msg), "Banned for %sh", timeStr);
-        updateStatus(msg);
+        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
         return;
     }
     if (!text || strlen(text) == 0) return;
     u64 now = osGetTime();
     if (now - game->lastSendTime < 5000) {
-        updateStatus("Wait 5 seconds to send!");
+        updateStatus("Wait 5 seconds to send!", C2D_Color32(200, 150, 50, 255));
         return;
     }
     sendInProgress = true;
@@ -216,7 +231,7 @@ void sendTextMessage(const char* text) {
         free(payload);
         addMessage(game->userName, game->userColorIdx, text, false, NULL, 0, NULL, 0);
         game->lastSendTime = now;
-        updateStatus("Sent!");
+        updateStatus("Sent!", C2D_Color32(50, 100, 255, 255));
     }
     sendInProgress = false;
 }
@@ -231,6 +246,7 @@ void openKeyboard() {
         if (strlen(text) > 0) sendTextMessage(text);
     }
     game->needsRedrawBottom = true;
+    game->needsRedrawTop = true;
 }
 
 void renderTop() {
@@ -261,9 +277,17 @@ void renderTop() {
             C2D_TextParse(&t_sync, g_dynBuf, "Syncing...");
             C2D_DrawText(&t_sync, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(180, 180, 180, 255));
         } else if (game->statusMsgTimer > osGetTime()) {
+            C2D_DrawRectSolid(0, 0, 0.5f, 400, 25, game->statusColor);
+            u32 lighterColor = C2D_Color32(
+                (game->statusColor & 0xFF) + 50 > 255 ? 255 : (game->statusColor & 0xFF) + 50,
+                ((game->statusColor >> 8) & 0xFF) + 50 > 255 ? 255 : ((game->statusColor >> 8) & 0xFF) + 50,
+                ((game->statusColor >> 16) & 0xFF) + 50 > 255 ? 255 : ((game->statusColor >> 16) & 0xFF) + 50,
+                255
+            );
+            C2D_DrawLine(0, 25, lighterColor, 400, 25, lighterColor, 2.0f, 0.5f);
             C2D_Text t_stat;
             C2D_TextParse(&t_stat, g_dynBuf, game->statusMsg);
-            C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 50, 50, 255));
+            C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
         } else {
             u32 connCol = (mqtt_sock >= 0) ? C2D_Color32(0, 255, 100, 255) : C2D_Color32(255, 255, 255, 255);
             const char* connText = (mqtt_sock >= 0) ? "Online" : "Offline";
@@ -331,7 +355,7 @@ void renderTop() {
         C2D_TextParse(&t_ins, g_dynBuf, inst);
         C2D_DrawText(&t_ins, C2D_WithColor | C2D_AlignCenter, 200, 218, 0.5f, 0.55f, 0.55f, instCol);
     }
-    else if (game->appState == STATE_CHAT) {
+    else if (game->appState == STATE_CHAT || game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) {
         C2D_TargetClear(top, C2D_Color32(25, 25, 30, 255));
         C2D_SceneBegin(top);
         RoomChat* room = &game->rooms[game->selectedCategoryIdx][game->selectedSubIdx];
@@ -371,8 +395,14 @@ void renderTop() {
         }
         int activeCount = getActiveUserCount(game->selectedCategoryIdx, game->selectedSubIdx);
         if (game->statusMsgTimer > osGetTime()) {
-            C2D_DrawRectSolid(0, 0, 0.5f, 400, 25, C2D_Color32(200, 50, 50, 255));
-            C2D_DrawLine(0, 25, C2D_Color32(255, 100, 100, 255), 400, 25, C2D_Color32(255, 100, 100, 255), 2.0f, 0.5f);
+            C2D_DrawRectSolid(0, 0, 0.5f, 400, 25, game->statusColor);
+            u32 lighterColor = C2D_Color32(
+                (game->statusColor & 0xFF) + 50 > 255 ? 255 : (game->statusColor & 0xFF) + 50,
+                ((game->statusColor >> 8) & 0xFF) + 50 > 255 ? 255 : ((game->statusColor >> 8) & 0xFF) + 50,
+                ((game->statusColor >> 16) & 0xFF) + 50 > 255 ? 255 : ((game->statusColor >> 16) & 0xFF) + 50,
+                255
+            );
+            C2D_DrawLine(0, 25, lighterColor, 400, 25, lighterColor, 2.0f, 0.5f);
             C2D_Text t_stat;
             C2D_TextParse(&t_stat, g_dynBuf, game->statusMsg);
             C2D_DrawText(&t_stat, C2D_WithColor | C2D_AlignCenter, 200, 4, 0.5f, 0.6f, 0.6f, C2D_Color32(255, 255, 255, 255));
@@ -445,7 +475,7 @@ void renderTop() {
             C2D_DrawText(&t_vinst, C2D_WithColor | C2D_AlignCenter, 200, 90, 0.8f, 0.5f, 0.5f, C2D_Color32(100, 255, 100, 255));
         }
         else {
-            if (activeCount > 0) {
+            if (activeCount > 0 && game->appState == STATE_CHAT) {
                 if (game->uiSelectedUserIdx >= activeCount) game->uiSelectedUserIdx = 0;
                 ActiveUser* tu = getActiveUserByIndex(game->selectedCategoryIdx, game->selectedSubIdx, game->uiSelectedUserIdx);
                 if (tu && strlen(tu->mac) > 0) {
@@ -480,6 +510,49 @@ void renderTop() {
 void renderBottom() {
     C2D_TargetClear(bottom, C2D_Color32(35, 35, 40, 255));
     C2D_SceneBegin(bottom);
+
+    if (game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) {
+        C2D_DrawRectSolid(0, 0, 0.5f, 320, 240, C2D_Color32(30, 30, 35, 255));
+        C2D_Text t_title;
+        const char* t = (game->appState == STATE_SAVE_MENU) ? "Select Slot to SAVE" : "Select Slot to LOAD";
+        C2D_TextParse(&t_title, g_dynBuf, t);
+        C2D_DrawText(&t_title, C2D_WithColor | C2D_AlignCenter, 160, 10, 0.5f, 0.7f, 0.7f, C2D_Color32(255, 255, 255, 255));
+
+        int slotW = 66, slotH = 46;
+        int padX = 8, padY = 8;
+        int startX = 16, startY = 35;
+
+        for (int i=0; i<MAX_SAVE_SLOTS; i++) {
+            int row = i / 4;
+            int col = i % 4;
+            int x = startX + col * (slotW + padX);
+            int y = startY + row * (slotH + padY);
+
+            C2D_DrawRectSolid(x, y, 0.5f, slotW, slotH, C2D_Color32(50, 50, 55, 255));
+            C2D_DrawLine(x, y, C2D_Color32(100,100,100,255), x+slotW, y, C2D_Color32(100,100,100,255), 1.0f, 0.5f);
+            C2D_DrawLine(x, y+slotH, C2D_Color32(100,100,100,255), x+slotW, y+slotH, C2D_Color32(100,100,100,255), 1.0f, 0.5f);
+            C2D_DrawLine(x, y, C2D_Color32(100,100,100,255), x, y+slotH, C2D_Color32(100,100,100,255), 1.0f, 0.5f);
+            C2D_DrawLine(x+slotW, y, C2D_Color32(100,100,100,255), x+slotW, y+slotH, C2D_Color32(100,100,100,255), 1.0f, 0.5f);
+
+            if (game->slotInUse[i]) {
+                renderSnapshotPreview(&game->savedDrawings[i], x+2, y+2, slotW-4, slotH-4);
+            } else {
+                C2D_Text t_empty;
+                C2D_TextParse(&t_empty, g_dynBuf, "Empty");
+                C2D_DrawText(&t_empty, C2D_WithColor | C2D_AlignCenter, x + slotW/2, y + slotH/2 - 6, 0.5f, 0.4f, 0.4f, C2D_Color32(150, 150, 150, 255));
+            }
+
+            char num[4]; snprintf(num, sizeof(num), "%d", i+1);
+            C2D_Text t_num; C2D_TextParse(&t_num, g_dynBuf, num);
+            C2D_DrawText(&t_num, C2D_WithColor, x+3, y+3, 0.5f, 0.4f, 0.4f, C2D_Color32(200,200,200,255));
+        }
+
+        C2D_DrawRectSolid(100, 210, 0.5f, 120, 20, C2D_Color32(150, 50, 50, 255));
+        C2D_Text t_cancel; C2D_TextParse(&t_cancel, g_dynBuf, "Cancel");
+        C2D_DrawText(&t_cancel, C2D_WithColor | C2D_AlignCenter, 160, 213, 0.5f, 0.5f, 0.5f, C2D_Color32(255,255,255,255));
+        return;
+    }
+
     if (game->appState == STATE_CHAT) {
         drawDrawingToolbar();
         if (game->userDrawingCount > 0) {
@@ -534,6 +607,7 @@ void renderBottom() {
         }
 
         C2D_DrawRectSolid(0, SECOND_BAR_Y, 0.5f, 320, 26, C2D_Color32(40, 40, 45, 255));
+
         C2D_DrawRectSolid(0, SECOND_BAR_Y, 0.5f, 64, 26, C2D_Color32(50, 50, 55, 255));
         C2D_DrawLine(0, SECOND_BAR_Y + 13, C2D_Color32(80, 80, 85, 255), 64, SECOND_BAR_Y + 13, C2D_Color32(80, 80, 85, 255), 1.0f, 0.5f);
         C2D_DrawTriangle(32, SECOND_BAR_Y + 3, C2D_Color32(200, 200, 200, 255),
@@ -542,14 +616,18 @@ void renderBottom() {
         C2D_DrawTriangle(22, SECOND_BAR_Y + 16, C2D_Color32(200, 200, 200, 255),
                          42, SECOND_BAR_Y + 16, C2D_Color32(200, 200, 200, 255),
                          32, SECOND_BAR_Y + 23, C2D_Color32(200, 200, 200, 255), 0.5f);
-        C2D_DrawRectSolid(256, SECOND_BAR_Y, 0.5f, 64, 26, C2D_Color32(50, 50, 55, 255));
-        C2D_Text t_scr_btn;
-        C2D_TextParse(&t_scr_btn, g_dynBuf, "Scroll");
-        u32 scrCol = game->autoScrollEnabled ? C2D_Color32(50, 255, 50, 255) : C2D_Color32(255, 50, 50, 255);
-        C2D_DrawText(&t_scr_btn, C2D_WithColor | C2D_AlignCenter, 288, SECOND_BAR_Y + 6, 0.5f, 0.55f, 0.55f, scrCol);
-        C2D_DrawRectSolid(64, SECOND_BAR_Y, 0.5f, 192, 26, C2D_Color32(45, 45, 50, 255));
-        int sW = 140;
-        int sX = 64 + (192 - sW) / 2;
+
+        C2D_DrawRectSolid(224, SECOND_BAR_Y, 0.5f, 48, 26, C2D_Color32(150, 100, 50, 255));
+        C2D_Text t_save; C2D_TextParse(&t_save, g_dynBuf, "SAVE");
+        C2D_DrawText(&t_save, C2D_WithColor | C2D_AlignCenter, 248, SECOND_BAR_Y + 6, 0.5f, 0.45f, 0.45f, C2D_Color32(255,255,255,255));
+
+        C2D_DrawRectSolid(272, SECOND_BAR_Y, 0.5f, 48, 26, C2D_Color32(50, 100, 150, 255));
+        C2D_Text t_load; C2D_TextParse(&t_load, g_dynBuf, "LOAD");
+        C2D_DrawText(&t_load, C2D_WithColor | C2D_AlignCenter, 296, SECOND_BAR_Y + 6, 0.5f, 0.45f, 0.45f, C2D_Color32(255,255,255,255));
+
+        C2D_DrawRectSolid(64, SECOND_BAR_Y, 0.5f, 160, 26, C2D_Color32(45, 45, 50, 255));
+        int sW = 120;
+        int sX = 64 + (160 - sW) / 2;
         int sY = SECOND_BAR_Y + 10;
         C2D_DrawRectSolid(sX, sY, 0.5f, sW, 6, C2D_Color32(80, 80, 80, 255));
         float cSize = game->isEraser ? game->currentEraserSize : game->currentPenSize;
@@ -622,7 +700,7 @@ void renderBottom() {
         C2D_TextParse(&t_r3, g_dynBuf, "3. Do not spam the chat.");
         C2D_DrawText(&t_r3, C2D_WithColor | C2D_AlignCenter, 160, 185, 0.5f, 0.5f, 0.5f, C2D_Color32(150, 150, 150, 255));
         C2D_Text t_version;
-        C2D_TextParse(&t_version, g_dynBuf, "v1.0 ");
+        C2D_TextParse(&t_version, g_dynBuf, "v1.0.1 Enjoy! ban abuse will be punished.");
         C2D_DrawText(&t_version, C2D_WithColor, 5, 220, 0.5f, 0.5f, 0.5f, C2D_Color32(80, 80, 90, 255));
     }
 }
