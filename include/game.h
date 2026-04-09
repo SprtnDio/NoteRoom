@@ -7,7 +7,9 @@
 typedef enum {
     STATE_MAIN_MENU,
     STATE_SUB_MENU,
-    STATE_CHAT
+    STATE_CHAT,
+    STATE_SAVE_MENU,
+    STATE_LOAD_MENU
 } AppState;
 
 typedef struct {
@@ -73,6 +75,9 @@ typedef struct {
     DrawingSnapshot redoSnapshots[MAX_UNDO_STEPS];
     int redoCount;
 
+    DrawingSnapshot savedDrawings[MAX_SAVE_SLOTS];
+    bool slotInUse[MAX_SAVE_SLOTS];
+
     char userName[16];
     u8 userColorIdx;
     char macAddress[MAC_BUFFER_SIZE];
@@ -91,6 +96,7 @@ typedef struct {
     int selectedCategoryIdx;
     int selectedSubIdx;
     char statusMsg[64];
+    u32 statusColor;
 
     u64 statusMsgTimer;
     bool needsRedrawTop;
@@ -134,6 +140,8 @@ typedef struct {
     bool trustedTimeValid;
     u64 lastNtpSyncTime;
     bool ntpSyncInProgress;
+
+    u64 lastTimeSyncRequest;
 } GameState;
 
 extern GameState* game;
@@ -143,6 +151,7 @@ extern u64 lastBanChangeTime;
 extern char ban_file_path[64];
 extern char time_file_path[64];
 extern char user_file_path[64];
+extern char save_file_path[64];
 
 void xor_buffer(u8* buf, size_t len, u8 key);
 void ensureDirectoriesExist(void);

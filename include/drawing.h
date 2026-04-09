@@ -12,3 +12,5 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime);
 void finishDrawingStroke(void);
 void loadDrawingFromMessage(ChatMessage* msg);
 void sendDrawing(void);
+void saveDrawingsToSD(void);
+void loadDrawingsFromSD(void);

@@ -7,7 +7,7 @@ extern C2D_TextBuf g_dynBuf;
 
 u32 rainbowColor(float pos);
 u32 getPointColor(Point p);
-void updateStatus(const char* t);
+void updateStatus(const char* t, u32 color);
 void drawTextBubble(float x, float y, float width, float height, ChatMessage* msg);
 void drawDrawingBubble(float x, float y, float width, float height, ChatMessage* msg);
 void renderDrawingPreview(ChatMessage* msg, float startX, float startY, float width, float height);
