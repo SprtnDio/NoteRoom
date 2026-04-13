@@ -44,8 +44,7 @@ void decode_drawing(const char* payload) {
         snprintf(senderName, sizeof(senderName), "%.*s", nameLen, payload);
         colorIdx = atoi(hash1 + 1);
         int macLen = firstPipe - (hash2 + 1);
-        if (macLen > 19) macLen = 19;
-        snprintf(senderMac, sizeof(senderMac), "%.*s", macLen, hash2 + 1);
+        snprintf(senderMac, sizeof(senderMac), "%.*s", macLen > MAX_MAC_DISPLAY ? MAX_MAC_DISPLAY : macLen, hash2 + 1);
     } else if (hash1 && hash1 < firstPipe) {
         int nameLen = hash1 - payload;
         if (nameLen > 15) nameLen = 15;
@@ -59,14 +58,14 @@ void decode_drawing(const char* payload) {
 
     if (isBanned(senderMac)) return;
     if (colorIdx < 0 || colorIdx >= NUM_USER_COLORS) colorIdx = 0;
-
+    
     if (strcmp(senderName, "ServerAdmin") == 0) {
         const char* content = firstPipe + 1;
         if (strncmp(content, "TEXT:", 5) == 0) {
             char* text = (char*)content + 5;
             u32 color = C2D_Color32(200, 50, 50, 255);
             bool is_banner = false;
-
+            
             if (text[0] == '[' && text[1] == '#' && strlen(text) > 8 && text[8] == ']') {
                 int r=0, g=0, b=0;
                 if (sscanf(text, "[#%02x%02x%02x]", &r, &g, &b) == 3 || sscanf(text, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
@@ -82,7 +81,7 @@ void decode_drawing(const char* payload) {
             if (is_banner) {
                 updateStatus(text, color);
             } else {
-                addMessage(senderName, 0, text, false, NULL, 0, NULL, 0);
+                addMessage(senderName, 0, text, false, NULL, 0, NULL, 0, "");
             }
         }
         return;
@@ -92,7 +91,7 @@ void decode_drawing(const char* payload) {
 
     const char* content = firstPipe + 1;
     if (strncmp(content, "TEXT:", 5) == 0) {
-        addMessage(senderName, colorIdx, content + 5, false, NULL, 0, NULL, 0);
+        addMessage(senderName, colorIdx, content + 5, false, NULL, 0, NULL, 0, senderMac);
         return;
     }
 
@@ -105,7 +104,7 @@ void decode_drawing(const char* payload) {
         strncpy(chunk, content + i, 10);
         if (strcmp(chunk, "FFFFFFFF00") == 0) {
             if (pointIndex < MAX_INK_LIMIT) {
-                drawingPoints[pointIndex++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                drawingPoints[pointIndex++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
             continue;
         }
@@ -120,9 +119,12 @@ void decode_drawing(const char* payload) {
             u8 color = (prop >> 3) & 0xF;
             u16 x = (u16)(x_low | (x_high << 8));
             u16 y = (u16)(y_low | (y_high << 8));
+            
             if (x != 0xFFFF || y != 0xFFFF) {
-                if (x != 0xFFFF && x > 1000) x = 1000;
-                if (y != 0xFFFF && y > 1000) y = 1000;
+                if (x > 319) x = 319;
+                if (y < DRAWING_AREA_TOP) y = DRAWING_AREA_TOP;
+                if (y > DRAWING_AREA_BOTTOM) y = DRAWING_AREA_BOTTOM;
+
                 if (pointIndex == 0 || (pointIndex > 0 && drawingPoints[pointIndex-1].x == 0xFFFF)) {
                     if (strokeIndex < MAX_STROKES) { strokeStarts[strokeIndex++] = pointIndex; }
                 }
@@ -137,7 +139,7 @@ void decode_drawing(const char* payload) {
         }
     }
     if (pointIndex > 0) {
-        addMessage(senderName, colorIdx, "", true, drawingPoints, pointIndex, strokeStarts, strokeIndex);
+        addMessage(senderName, colorIdx, "", true, drawingPoints, pointIndex, strokeStarts, strokeIndex, senderMac);
     }
 }
 
@@ -190,7 +192,7 @@ bool applyVertexPulling(Point* p1, Point* p2, float cx, float cy, float eraserRa
                 p2->y = (u16)ny;
                 if (p2->type < 252) p2->type = 253;
             } else {
-                if (p2->type < 252) p2->type = 255;
+                if (p2->type < 252) p2->type = 255; 
             }
             return true;
         } else if (p1In && !p2In) {
@@ -217,16 +219,16 @@ bool applyVertexPulling(Point* p1, Point* p2, float cx, float cy, float eraserRa
 }
 
 void compactDrawingArray() {
-    static Point temp[MAX_INK_LIMIT * 3];
+    static Point temp[MAX_INK_LIMIT * 3]; 
     int tempCount = 0;
     for (int i = 0; i < game->userDrawingCount; i++) {
         if (game->userDrawing[i].x == 0xFFFF || game->userDrawing[i].type == 255) {
             if (tempCount > 0 && temp[tempCount-1].x != 0xFFFF && tempCount < (MAX_INK_LIMIT * 3) - 1) {
-                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
         } else if (game->userDrawing[i].type == 254) {
             if (tempCount > 0 && temp[tempCount-1].x != 0xFFFF && tempCount < (MAX_INK_LIMIT * 3) - 2) {
-                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
             game->userDrawing[i].type = 0;
             if (tempCount < (MAX_INK_LIMIT * 3) - 1) {
@@ -237,12 +239,12 @@ void compactDrawingArray() {
             if (tempCount < (MAX_INK_LIMIT * 3) - 2) {
                 temp[tempCount++] = game->userDrawing[i];
                 if (tempCount > 0 && temp[tempCount-1].x != 0xFFFF) {
-                    temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                    temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
                 }
             }
         } else if (game->userDrawing[i].type == 252) {
             if (tempCount > 0 && temp[tempCount-1].x != 0xFFFF && tempCount < (MAX_INK_LIMIT * 3) - 2) {
-                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                temp[tempCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
             game->userDrawing[i].type = 0;
             if (tempCount < (MAX_INK_LIMIT * 3) - 1) {
@@ -264,7 +266,7 @@ void compactDrawingArray() {
         } else {
             bool prevIsSep = (i == 0 || temp[i-1].x == 0xFFFF);
             bool nextIsSep = (i == tempCount - 1 || temp[i+1].x == 0xFFFF);
-            if (!prevIsSep || !nextIsSep) {
+            if (!prevIsSep || !nextIsSep) { 
                 if (finalCount < MAX_INK_LIMIT) {
                     finalArr[finalCount++] = temp[i];
                 }
@@ -285,6 +287,10 @@ void compactDrawingArray() {
 }
 
 void handleDrawingTouch(touchPosition touch, u32 currentTime) {
+    if (touch.px > 319) touch.px = 319;
+    if (touch.py < DRAWING_AREA_TOP) touch.py = DRAWING_AREA_TOP;
+    if (touch.py > DRAWING_AREA_BOTTOM) touch.py = DRAWING_AREA_BOTTOM;
+    
     if (game->isEraser) {
         if (!game->isDrawing) {
             saveUndoState();
@@ -329,14 +335,14 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
 
     if (game->userDrawingCount >= MAX_INK_LIMIT - 2) {
         if (game->isDrawing) {
-            game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+            game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             saveUndoState();
             game->isDrawing = false;
             game->needsRedrawBottom = true;
         }
         return;
     }
-
+    
     u8 closestSizeIdx = (game->currentPenSize >= 6.0f) ? 2 : ((game->currentPenSize >= 3.0f) ? 1 : 0);
 
     if (!game->isDrawing) {
@@ -344,7 +350,7 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
         game->isDrawing = true;
         if (game->userDrawingCount > 0 && game->userDrawing[game->userDrawingCount-1].x != 0xFFFF) {
             if (game->userDrawingCount < MAX_INK_LIMIT - 2) {
-                game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
         }
         if (game->userStrokeCount < MAX_STROKES &&
@@ -380,8 +386,9 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
                 float t = (float)s / steps;
                 float fx = last.x + dx * t;
                 float fy = last.y + dy * t;
-                if (fx < 0.0f) fx = 0.0f; else if (fx > 400.0f) fx = 400.0f;
-                if (fy < 0.0f) fy = 0.0f; else if (fy > 400.0f) fy = 400.0f;
+                if (fx < 0.0f) fx = 0.0f; else if (fx > 319.0f) fx = 319.0f;
+                if (fy < DRAWING_AREA_TOP) fy = DRAWING_AREA_TOP;
+                if (fy > DRAWING_AREA_BOTTOM) fy = DRAWING_AREA_BOTTOM;
                 u16 nx = (u16)fx;
                 u16 ny = (u16)fy;
                 game->userDrawing[game->userDrawingCount++] = (Point){
@@ -389,7 +396,7 @@ void handleDrawingTouch(touchPosition touch, u32 currentTime) {
                     .type = 0,
                     .sizeIdx = closestSizeIdx,
                     .color = color,
-                    .thickness = game->currentPenSize
+                    .thickness = game->currentPenSize 
                 };
             }
             game->hasUnsavedDrawing = true;
@@ -408,8 +415,13 @@ void finishDrawingStroke() {
                 if (game->userDrawingCount < MAX_INK_LIMIT - 2) {
                     u8 color = game->rainbowMode ? NUM_USER_COLORS : game->currentColorIdx;
                     u8 closestSizeIdx = (game->currentPenSize >= 6.0f) ? 2 : ((game->currentPenSize >= 3.0f) ? 1 : 0);
+                    u16 tx = game->lastValidTouch.px;
+                    u16 ty = game->lastValidTouch.py;
+                    if (tx > 319) tx = 319;
+                    if (ty < DRAWING_AREA_TOP) ty = DRAWING_AREA_TOP;
+                    if (ty > DRAWING_AREA_BOTTOM) ty = DRAWING_AREA_BOTTOM;
                     game->userDrawing[game->userDrawingCount++] = (Point){
-                        .x = game->lastValidTouch.px, .y = game->lastValidTouch.py,
+                        .x = tx, .y = ty,
                         .type = 0,
                         .sizeIdx = closestSizeIdx,
                         .color = color,
@@ -419,12 +431,12 @@ void finishDrawingStroke() {
             } else if (lastStored.x != 0xFFFF) {
                 if (game->userDrawingCount < MAX_INK_LIMIT - 2) {
                     Point dup = lastStored;
-                    dup.x += 1;
+                    dup.x += 1; 
                     game->userDrawing[game->userDrawingCount++] = dup;
                 }
             }
             if (game->userDrawingCount < MAX_INK_LIMIT) {
-                game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0.0f};
+                game->userDrawing[game->userDrawingCount++] = (Point){0xFFFF, 0xFFFF, 0, 0, 0, 0.0f};
             }
         }
         game->isDrawing = false;
@@ -465,14 +477,8 @@ static bool drawing_has_real_point() {
 
 void sendDrawing() {
     if (sendInProgress) return;
-    if (isBanned(game->macAddress)) {
-        char timeStr[16];
-        getBanRemainingTime(timeStr, sizeof(timeStr), game->macAddress);
-        char msg[64];
-        snprintf(msg, sizeof(msg), "Banned for %sh", timeStr);
-        updateStatus(msg, C2D_Color32(200, 50, 50, 255));
-        return;
-    }
+    if (game->isSyncing || isBanned(game->macAddress)) return;
+    
     u64 now = osGetTime();
     if (now - game->lastSendTime < 5000) {
         updateStatus("Wait 5 seconds to send!", C2D_Color32(200, 150, 50, 255));
@@ -507,8 +513,8 @@ void sendDrawing() {
     char* dest = payload + written;
     for(int i = 0; i < game->userDrawingCount; i++) {
         Point p = game->userDrawing[i];
-        if(p.x == 0xFFFF) {
-            dest += snprintf(dest, payloadSize - (dest - payload), "FFFFFFFF00");
+        if(p.x == 0xFFFF) { 
+            dest += snprintf(dest, payloadSize - (dest - payload), "FFFFFFFF00"); 
         } else {
             u8 prop = (p.color << 3) | (p.sizeIdx << 1) | (p.type & 0x1);
             dest += snprintf(dest, payloadSize - (dest - payload), "%02X%02X%02X%02X%02X",
@@ -519,7 +525,7 @@ void sendDrawing() {
     snprintf(topic, sizeof(topic), "%s/Review/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
     mqtt_publish(topic, payload, false);
     free(payload);
-    addMessage(game->userName, game->userColorIdx, "", true, game->userDrawing, game->userDrawingCount, game->userStrokeStarts, game->userStrokeCount);
+    addMessage(game->userName, game->userColorIdx, "", true, game->userDrawing, game->userDrawingCount, game->userStrokeStarts, game->userStrokeCount, game->macAddress);
     game->userDrawingCount = 0; game->userStrokeCount = 0;
     game->undoCount = 0; game->redoCount = 0;
     game->hasUnsavedDrawing = false; game->needsRedrawBottom = true;

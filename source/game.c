@@ -15,6 +15,10 @@ u64 lastBanChangeTime = 0;
 char ban_file_path[64];
 char time_file_path[64];
 char user_file_path[64];
+char save_file_path[64];
+
+char adminMacList[MAX_ADMIN_MACS][MAX_MAC_DISPLAY + 1];
+int adminMacCount = 0;
 
 void xor_buffer(u8* buf, size_t len, u8 key) {
     for (size_t i = 0; i < len; i++) buf[i] ^= key;
@@ -51,6 +55,25 @@ void getBanRemainingTime(char *buffer, size_t size, const char *mac) {
     snprintf(buffer, size, "00:00");
 }
 
+bool isAdminMac(const char* mac) {
+    if (!mac || adminMacCount == 0) return false;
+    for (int i = 0; i < adminMacCount; i++) {
+        if (strcmp(adminMacList[i], mac) == 0) return true;
+    }
+    return false;
+}
+
+bool actionAllowed(void) {
+    if (!game) return false;
+    u64 now = osGetTime();
+    if (now - game->lastActionTime < 500) return false;
+    if (game->isSyncing || isBanned(game->macAddress)) {
+        return false;
+    }
+    game->lastActionTime = now;
+    return true;
+}
+
 void saveUserDataEncrypted() {
     ensureDirectoriesExist();
     FILE* f = fopen(user_file_path, "wb");
@@ -84,6 +107,7 @@ void loadUserDataEncrypted() {
             snprintf(game->userName, 13, "Guest");
         } else {
             game->userName[12] = '\0';
+            for(int i=0; game->userName[i]!='\0'; i++) { if(game->userName[i]=='#' || game->userName[i]=='|') game->userName[i]='_'; }
         }
         game->userColorIdx = 0;
         saveUserDataEncrypted();
@@ -155,7 +179,8 @@ void cleanExpiredBans() {
         lastBanChangeTime = (u64)now;
         saveBannedList();
         if (myBanExpired) {
-            updateStatus("Your ban has expired!");
+            updateStatus("Your ban has expired!", C2D_Color32(50, 200, 50, 255));
+            game->isSyncing = false;
             game->needsRedrawTop = true;
         }
     }
@@ -301,13 +326,14 @@ void editUsername() {
     swkbdSetInitialText(&s, game->userName);
     swkbdSetValidation(&s, SWKBD_NOTEMPTY_NOTBLANK, 0, 12);
     if (swkbdInputText(&s, newName, 13) == SWKBD_BUTTON_CONFIRM) {
+        for(int i=0; newName[i]!='\0'; i++) { if(newName[i]=='#' || newName[i]=='|') newName[i]='_'; }
         snprintf(game->userName, 13, "%s", newName);
         saveUserData();
-        updateStatus("Name updated!");
+        updateStatus("Name updated!", C2D_Color32(50, 200, 50, 255));
     }
 }
 
-void addMessage(const char* sender, u8 colorIdx, const char* text, bool isDrawing, Point* drawingData, int drawingCount, int* strokeStarts, int strokeCount) {
+void addMessage(const char* sender, u8 colorIdx, const char* text, bool isDrawing, Point* drawingData, int drawingCount, int* strokeStarts, int strokeCount, const char* senderMac) {
     RoomChat* room = &game->rooms[game->selectedCategoryIdx][game->selectedSubIdx];
     if (room->messageCount >= MAX_MESSAGES) {
         if (room->messages[0].drawingData) {
@@ -326,6 +352,11 @@ void addMessage(const char* sender, u8 colorIdx, const char* text, bool isDrawin
     snprintf(msg->text, sizeof(msg->text), "%s", text);
     msg->isDrawing = isDrawing;
     msg->timestamp = (u32)(getTrustedTime());
+    if (senderMac) {
+        snprintf(msg->senderMac, sizeof(msg->senderMac), "%.*s", MAX_MAC_DISPLAY, senderMac);
+    } else {
+        msg->senderMac[0] = '\0';
+    }
 
     if (!isDrawing && strlen(text) > 0) {
         int lines = 1;

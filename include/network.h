@@ -19,13 +19,16 @@ extern char admin_list_res_topic[128];
 extern char admin_status_topic[128];
 extern char admin_announce_topic[128];
 extern char admin_banlist_topic[128];
+extern char admin_maclist_topic[128];
+extern char time_req_topic[128];
+extern char time_res_topic[128];
 
 int mqtt_encode_length(u8* buf, int length);
 void mqtt_connect(void);
 void mqtt_subscribe(const char* topic);
 void mqtt_unsubscribe(const char* topic);
 void mqtt_publish(const char* topic, const char* payload, bool retain);
+void mqtt_publish_qos(const char* topic, const char* payload, bool retain, int qos);
 void mqtt_ping(void);
 void mqtt_poll(void);
-bool ntp_sync_time(void);
 void handle_admin_command(const char* topic, const char* payload);

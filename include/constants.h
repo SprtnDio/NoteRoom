@@ -15,6 +15,8 @@
 #define LOBBY_MAX_USERS 18
 #define SCROLL_SPEED 12
 #define MAX_SAVE_SLOTS 12
+#define MAX_ADMIN_MACS 10
+#define MAX_MAC_DISPLAY 19
 
 #define BAN_DURATION_SECONDS (48 * 60 * 60)
 #define MAC_BUFFER_SIZE 20
@@ -41,12 +43,6 @@
 
 #define CATEGORY_COUNT 7
 #define MAX_SUB_ROOMS 7
-
-#define NTP_SERVER "pool.ntp.org"
-#define NTP_PORT 123
-#define NTP_TIMEOUT_MS 3000
-#define NTP_SYNC_INTERVAL_MS (6 * 60 * 60 * 1000)
-#define NTP_TIMESTAMP_DELTA 2208988800ull
 
 #define ERASER_SIZE_COUNT 3
 #define PEN_SIZE_COUNT 3

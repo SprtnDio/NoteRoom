@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
     char text[MAX_TEXT_LENGTH];
     char sender[16];
+    char senderMac[MAC_BUFFER_SIZE];
     u8 nameColorIdx;
     u32 timestamp;
     bool isDrawing;
@@ -95,7 +96,7 @@ typedef struct {
     bool isSyncing;
     int selectedCategoryIdx;
     int selectedSubIdx;
-    char statusMsg[64];
+    char statusMsg[128];
     u32 statusColor;
 
     u64 statusMsgTimer;
@@ -119,6 +120,7 @@ typedef struct {
 
     u64 lastSendTime;
     u64 lastNetworkActivity;
+    u64 lastActionTime;
 
     bool voteActive;
     char voteTargetMac[MAC_BUFFER_SIZE];
@@ -138,10 +140,9 @@ typedef struct {
     u64 trustedUnixTime;
     u64 trustedTick;
     bool trustedTimeValid;
-    u64 lastNtpSyncTime;
-    bool ntpSyncInProgress;
-
     u64 lastTimeSyncRequest;
+
+    u64 bootTime;
 } GameState;
 
 extern GameState* game;
@@ -153,9 +154,14 @@ extern char time_file_path[64];
 extern char user_file_path[64];
 extern char save_file_path[64];
 
+extern char adminMacList[MAX_ADMIN_MACS][MAX_MAC_DISPLAY + 1];
+extern int adminMacCount;
+
 void xor_buffer(u8* buf, size_t len, u8 key);
 void ensureDirectoriesExist(void);
 void getBanRemainingTime(char *buffer, size_t size, const char *mac);
+bool isAdminMac(const char* mac);
+bool actionAllowed(void);
 void saveUserDataEncrypted(void);
 void loadUserDataEncrypted(void);
 void saveTrustedTime(void);
@@ -172,4 +178,4 @@ ActiveUser* getActiveUserByIndex(int cat, int sub, int idx);
 void saveUserData(void);
 void loadOrAskUsername(void);
 void editUsername(void);
-void addMessage(const char* sender, u8 colorIdx, const char* text, bool isDrawing, Point* drawingData, int drawingCount, int* strokeStarts, int strokeCount);
+void addMessage(const char* sender, u8 colorIdx, const char* text, bool isDrawing, Point* drawingData, int drawingCount, int* strokeStarts, int strokeCount, const char* senderMac);

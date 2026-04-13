@@ -31,9 +31,9 @@ char admin_list_res_topic[128];
 char admin_status_topic[128];
 char admin_announce_topic[128];
 char admin_banlist_topic[128];
-
-static char time_req_topic[128];
-static char time_res_topic[128];
+char admin_maclist_topic[128];
+char time_req_topic[128];
+char time_res_topic[128];
 
 static u8 recv_buf[MAX_PAYLOAD_SIZE];
 static int recv_len = 0;
@@ -106,7 +106,7 @@ void mqtt_connect() {
             FD_ZERO(&wfds);
             FD_SET(mqtt_sock, &wfds);
             struct timeval tv;
-            tv.tv_sec = 5;
+            tv.tv_sec = 5; 
             tv.tv_usec = 0;
             int ret = select(mqtt_sock + 1, NULL, &wfds, NULL, &tv);
             if (ret <= 0) {
@@ -127,10 +127,10 @@ void mqtt_connect() {
 
     fcntl(mqtt_sock, F_SETFL, flags & ~O_NONBLOCK);
 
-    u8 packet[256];
+    u8 packet[256]; 
     int p = 0;
     packet[p++] = 0x10;
-
+    
     int client_len = strlen(game->clientID);
     int user_len = strlen(g_mqtt_user);
     int pass_len = strlen(g_mqtt_pass);
@@ -140,18 +140,18 @@ void mqtt_connect() {
     if (pass_len > 0) rem_len += 2 + pass_len;
 
     p += mqtt_encode_length(&packet[p], rem_len);
-
+    
     packet[p++] = 0x00; packet[p++] = 0x04;
     packet[p++] = 'M'; packet[p++] = 'Q'; packet[p++] = 'T'; packet[p++] = 'T';
-    packet[p++] = 0x04;
-
-    u8 conn_flags = 0x02;
-    if (user_len > 0) conn_flags |= 0x80;
-    if (pass_len > 0) conn_flags |= 0x40;
-    packet[p++] = conn_flags;
-
-    packet[p++] = 0x00; packet[p++] = 0x3C;
-
+    packet[p++] = 0x04; 
+    
+    u8 conn_flags = 0x02; 
+    if (user_len > 0) conn_flags |= 0x80; 
+    if (pass_len > 0) conn_flags |= 0x40; 
+    packet[p++] = conn_flags; 
+    
+    packet[p++] = 0x00; packet[p++] = 0x3C; 
+    
     packet[p++] = (client_len >> 8) & 0xFF;
     packet[p++] = client_len & 0xFF;
     memcpy(&packet[p], game->clientID, client_len);
@@ -185,14 +185,14 @@ void mqtt_connect() {
     updateStatus("Connected!", C2D_Color32(50, 200, 50, 255));
     last_ping_time = osGetTime();
     if (game) game->connectionFailed = false;
-
+    
     if (mqtt_sock >= 0) {
         char topic_sub[64];
         snprintf(topic_sub, sizeof(topic_sub), "%s/Heartbeat/#", g_base_topic);
         mqtt_subscribe(topic_sub);
-
+        
         mqtt_subscribe(admin_banlist_topic);
-
+        
         mqtt_subscribe(admin_reset_topic);
         mqtt_subscribe(admin_unban_topic);
         mqtt_subscribe(admin_ban_topic);
@@ -200,19 +200,21 @@ void mqtt_connect() {
         mqtt_subscribe(admin_list_req_topic);
         mqtt_subscribe(admin_status_topic);
         mqtt_subscribe(admin_announce_topic);
-
+        
         mqtt_subscribe(time_res_topic);
-
-        if (game->inChat) {
+        
+        mqtt_subscribe(admin_maclist_topic);
+        
+        if (game->inChat || game->appState == STATE_SAVE_MENU || game->appState == STATE_LOAD_MENU) {
             char topic[64];
             snprintf(topic, sizeof(topic), "%s/Review/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
             mqtt_subscribe(topic);
-
+            
             char topic_vote[64];
             snprintf(topic_vote, sizeof(topic_vote), "%s/Vote/+/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
             mqtt_subscribe(topic_vote);
         }
-
+        
         lastBanSyncRequest = osGetTime() + 2000;
         banRequestSent = false;
     }
@@ -280,6 +282,49 @@ void mqtt_publish(const char* topic, const char* payload, bool retain) {
     free(packet);
 }
 
+void mqtt_publish_qos(const char* topic, const char* payload, bool retain, int qos) {
+    if (mqtt_sock < 0) return;
+    int payload_len = strlen(payload);
+    int rem_len = 2 + strlen(topic) + payload_len;
+    if (qos > 0) rem_len += 2;
+
+    u8* packet = (u8*)malloc(rem_len + 16);
+    if (!packet) {
+        updateStatus("Memory Error!", C2D_Color32(200, 50, 50, 255));
+        return;
+    }
+
+    int p = 0;
+    u8 flags = (retain ? 0x01 : 0x00) | (qos << 1);
+    packet[p++] = 0x30 | flags;
+    p += mqtt_encode_length(&packet[p], rem_len);
+    packet[p++] = 0x00; packet[p++] = strlen(topic);
+    memcpy(&packet[p], topic, strlen(topic));
+    p += strlen(topic);
+    
+    if (qos > 0) {
+        static u16 pkt_id = 1;
+        packet[p++] = (pkt_id >> 8) & 0xFF;
+        packet[p++] = pkt_id & 0xFF;
+        pkt_id++;
+    }
+    
+    memcpy(&packet[p], payload, payload_len);
+    p += payload_len;
+
+    int res = send_all(mqtt_sock, packet, p, 0);
+    if (res < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        close(mqtt_sock);
+        mqtt_sock = -1;
+        if (game) {
+            game->connectionFailed = true;
+            game->needsRedrawTop = true;
+            game->needsRedrawBottom = true;
+        }
+    }
+    free(packet);
+}
+
 void mqtt_ping() {
     if (mqtt_sock < 0) return;
     u64 now = osGetTime();
@@ -327,70 +372,85 @@ void mqtt_poll() {
         return;
     }
 
-    int bytes = recv(mqtt_sock, recv_buf + recv_len, MAX_PAYLOAD_SIZE - recv_len, 0);
-    if (bytes > 0) {
-        recv_len += bytes;
-        if (game) game->lastNetworkActivity = osGetTime();
-    } else if (bytes == 0 || (bytes < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-        close(mqtt_sock);
-        mqtt_sock = -1;
-        recv_len = 0;
-        if (game) {
-            game->connectionFailed = true;
-            game->needsRedrawTop = true;
-            game->needsRedrawBottom = true;
-        }
-        return;
-    }
-
-    int i = 0;
-    while (i < recv_len) {
-        if (i + 1 > recv_len) break;
-        u8 packet_type = recv_buf[i] >> 4;
-        int remaining_len = 0;
-        int rem_len_bytes = decode_remaining_length(recv_buf + i + 1, recv_len - i - 1, &remaining_len);
-        if (rem_len_bytes < 0) {
+    while (1) {
+        int bytes = recv(mqtt_sock, recv_buf + recv_len, MAX_PAYLOAD_SIZE - recv_len, 0);
+        if (bytes > 0) {
+            recv_len += bytes;
+            if (game) game->lastNetworkActivity = osGetTime();
+        } else if (bytes == 0 || (bytes < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            close(mqtt_sock);
+            mqtt_sock = -1;
             recv_len = 0;
+            if (game) {
+                game->connectionFailed = true;
+                game->needsRedrawTop = true;
+                game->needsRedrawBottom = true;
+            }
             return;
         }
-        int total_packet_len = 1 + rem_len_bytes + remaining_len;
-        if (i + total_packet_len > recv_len) break;
 
-        if (packet_type == 3) {
-            int pos = i + 1 + rem_len_bytes;
-            if (pos + 2 > recv_len) break;
-            int topic_len = (recv_buf[pos] << 8) | recv_buf[pos+1];
-            pos += 2;
-            if (pos + topic_len > recv_len) break;
-            char topic_str[128];
-            if (topic_len < 127) {
-                memcpy(topic_str, recv_buf + pos, topic_len);
-                topic_str[topic_len] = '\0';
-            } else {
-                topic_str[0] = '\0';
+        int i = 0;
+        while (i < recv_len) {
+            if (i + 1 > recv_len) break;
+            u8 packet_type = recv_buf[i] >> 4;
+            int remaining_len = 0;
+            int rem_len_bytes = decode_remaining_length(recv_buf + i + 1, recv_len - i - 1, &remaining_len);
+            if (rem_len_bytes < 0) {
+                break;
             }
-            pos += topic_len;
+            int total_packet_len = 1 + rem_len_bytes + remaining_len;
+            if (i + total_packet_len > recv_len) {
+                break;
+            }
 
-            int payload_len = remaining_len - (2 + topic_len);
-            if (payload_len >= 0 && payload_len < MAX_PAYLOAD_SIZE) {
-                char* payload = (char*)malloc(payload_len + 1);
-                if (payload) {
-                    if (payload_len > 0) {
-                        memcpy(payload, recv_buf + pos, payload_len);
-                    }
-                    payload[payload_len] = '\0';
+            if (packet_type == 3) {
+                int pos = i + 1 + rem_len_bytes;
+                if (pos + 2 > recv_len) break;
+                int topic_len = (recv_buf[pos] << 8) | recv_buf[pos+1];
+                pos += 2;
+                if (pos + topic_len > recv_len) break;
+                char topic_str[128];
+                if (topic_len < 127) {
+                    memcpy(topic_str, recv_buf + pos, topic_len);
+                    topic_str[topic_len] = '\0';
+                } else {
+                    topic_str[0] = '\0';
+                }
+                pos += topic_len;
 
-                    char expected_hb[64];
-                    snprintf(expected_hb, sizeof(expected_hb), "%s/Heartbeat/C", g_base_topic);
-                    char expected_vote[64];
-                    snprintf(expected_vote, sizeof(expected_vote), "%s/Vote/", g_base_topic);
+                int payload_len = remaining_len - (2 + topic_len);
+                if (payload_len >= 0 && payload_len < MAX_PAYLOAD_SIZE) {
+                    char* payload = (char*)malloc(payload_len + 1);
+                    if (payload) {
+                        if (payload_len > 0) {
+                            memcpy(payload, recv_buf + pos, payload_len);
+                        }
+                        payload[payload_len] = '\0';
 
-                    if (strcmp(topic_str, admin_banlist_topic) == 0) {
-                        char* timestamp_str = strtok(payload, "|");
-                        if (timestamp_str) {
-                            u64 receivedTs = 0;
-                            if (sscanf(timestamp_str, "%llu", &receivedTs) == 1) {
-                                if (receivedTs >= lastBanChangeTime) {
+                        char expected_hb[64];
+                        snprintf(expected_hb, sizeof(expected_hb), "%s/Heartbeat/C", g_base_topic);
+                        char expected_vote[64];
+                        snprintf(expected_vote, sizeof(expected_vote), "%s/Vote/", g_base_topic);
+
+                        if (strcmp(topic_str, admin_maclist_topic) == 0) {
+                            adminMacCount = 0;
+                            char* token = strtok(payload, ",");
+                            while (token && adminMacCount < MAX_ADMIN_MACS) {
+                                while (*token == ' ') token++;
+                                snprintf(adminMacList[adminMacCount], MAX_MAC_DISPLAY + 1, "%.*s", MAX_MAC_DISPLAY, token);
+                                adminMacCount++;
+                                token = strtok(NULL, ",");
+                            }
+                            if (game) {
+                                game->needsRedrawTop = true;
+                                game->needsRedrawBottom = true;
+                            }
+                        }
+                        else if (strcmp(topic_str, admin_banlist_topic) == 0) {
+                            char* timestamp_str = strtok(payload, "|");
+                            if (timestamp_str) {
+                                u64 receivedTs = 0;
+                                if (sscanf(timestamp_str, "%llu", &receivedTs) == 1) {
                                     bannedCount = 0;
                                     char* token = strtok(NULL, "|");
                                     while (token && bannedCount < 100) {
@@ -407,9 +467,10 @@ void mqtt_poll() {
                                     }
                                     lastBanChangeTime = receivedTs;
                                     saveBannedList();
-
+                                    
                                     if (isBanned(game->macAddress)) {
-                                        if (game->inChat) {
+                                        game->isSyncing = true;
+                                        if (game->inChat || game->appState != STATE_MAIN_MENU) {
                                             game->inChat = false;
                                             game->appState = STATE_MAIN_MENU;
                                             char hb_topic[64];
@@ -425,210 +486,240 @@ void mqtt_poll() {
                                         snprintf(msg, sizeof(msg), "BANNED: %s", timeStr);
                                         updateStatus(msg, C2D_Color32(200, 50, 50, 255));
                                     } else {
-                                        updateStatus("Banlist synced from server!", C2D_Color32(50, 200, 50, 255));
+                                        if (osGetTime() - game->bootTime > 7000) {
+                                            game->isSyncing = false; 
+                                        }
                                     }
                                 }
                             }
+                            if (game) game->needsRedrawTop = true;
                         }
-                        if (game) game->needsRedrawTop = true;
-                    }
-                    else if (strcmp(topic_str, time_res_topic) == 0) {
-                        u64 receivedTs = 0;
-                        if (sscanf(payload, "%llu", &receivedTs) == 1 && receivedTs > 1700000000ULL) {
-                            game->trustedUnixTime = receivedTs;
-                            game->trustedTick = getMonotonicTick();
-                            game->trustedTimeValid = true;
-                            saveTrustedTime();
-                            updateStatus("Time synced via MQTT", C2D_Color32(50, 200, 50, 255));
-                        }
-                    }
-                    else if (strncmp(topic_str, g_base_topic, strlen(g_base_topic)) == 0) {
-                        if (strcmp(topic_str, admin_reset_topic) == 0 ||
-                            strcmp(topic_str, admin_unban_topic) == 0 ||
-                            strcmp(topic_str, admin_ban_topic) == 0 ||
-                            strcmp(topic_str, admin_kick_topic) == 0 ||
-                            strcmp(topic_str, admin_list_req_topic) == 0 ||
-                            strcmp(topic_str, admin_status_topic) == 0 ||
-                            strcmp(topic_str, admin_announce_topic) == 0) {
-                            handle_admin_command(topic_str, payload);
-                        }
-                        else if (strncmp(topic_str, expected_vote, strlen(expected_vote)) == 0) {
-                            char action[16];
-                            int c, s;
-                            if (sscanf(topic_str + strlen(expected_vote), "%15[^/]/C%d/S%d", action, &c, &s) == 3) {
-                                if (c == game->selectedCategoryIdx && s == game->selectedSubIdx) {
-                                    if (strcmp(action, "Start") == 0) {
-                                        char tMac[MAC_BUFFER_SIZE]={0}, tName[16]={0}, iMac[MAC_BUFFER_SIZE]={0}, iName[16]={0};
-                                        char* p1 = strchr(payload, '|');
-                                        if (p1) {
-                                            int lenMac = p1 - payload;
-                                            if(lenMac>19) lenMac=19;
-                                            snprintf(tMac, sizeof(tMac), "%.*s", lenMac, payload);
-                                            char* p2 = strchr(p1 + 1, '|');
-                                            if (p2) {
-                                                int lenName = p2 - (p1 + 1);
-                                                if(lenName>15) lenName=15;
-                                                snprintf(tName, sizeof(tName), "%.*s", lenName, p1 + 1);
-                                                char* p3 = strchr(p2 + 1, '|');
-                                                if (p3) {
-                                                    int lenIMac = p3 - (p2 + 1);
-                                                    if(lenIMac>19) lenIMac=19;
-                                                    snprintf(iMac, sizeof(iMac), "%.*s", lenIMac, p2 + 1);
-                                                    snprintf(iName, sizeof(iName), "%s", p3 + 1);
-                                                }
-                                            }
-                                        }
-                                        if (strlen(tMac) > 0 && !game->voteActive) {
-                                            game->voteActive = true;
-                                            snprintf(game->voteTargetMac, sizeof(game->voteTargetMac), "%s", tMac);
-                                            snprintf(game->voteTargetName, sizeof(game->voteTargetName), "%s", tName);
-                                            snprintf(game->voteInitiatorMac, sizeof(game->voteInitiatorMac), "%s", iMac);
-                                            snprintf(game->voteInitiatorName, sizeof(game->voteInitiatorName), "%s", iName);
-                                            game->voteEndTime = osGetTime() + 30000;
-                                            game->voteYes = 0;
-                                            game->voteNo = 0;
-                                            game->votedCount = 0;
-                                            game->iHaveVoted = false;
-                                            game->needsRedrawTop = true;
-                                        }
-                                    } else if (strcmp(action, "Cast") == 0) {
-                                        if (game->voteActive) {
-                                            char vMac[MAC_BUFFER_SIZE] = {0};
-                                            int vVal = 0;
-                                            char* p1 = strchr(payload, '|');
-                                            if (p1) {
-                                                int len = p1 - payload;
-                                                if(len>19) len=19;
-                                                snprintf(vMac, sizeof(vMac), "%.*s", len, payload);
-                                                vVal = atoi(p1 + 1);
-
-                                                bool already = false;
-                                                for (int v = 0; v < game->votedCount; v++) {
-                                                    if (strcmp(game->votedMacs[v], vMac) == 0) { already = true; break; }
-                                                }
-                                                if (!already && game->votedCount < LOBBY_MAX_USERS) {
-                                                    snprintf(game->votedMacs[game->votedCount++], sizeof(game->votedMacs[0]), "%s", vMac);
-                                                    if (vVal == 1) game->voteYes++; else game->voteNo++;
-                                                    game->needsRedrawTop = true;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    else if (strcmp(action, "Result") == 0) {
-                                        char targetMac[MAC_BUFFER_SIZE];
-                                        snprintf(targetMac, sizeof(targetMac), "%s", payload);
-                                        if (!isBanned(targetMac)) {
-                                            time_t banEnd = getTrustedTime() + BAN_DURATION_SECONDS;
-                                            if (addBanEntry(targetMac, "VoteBanned", banEnd)) {
-                                                updateStatus("User was banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
-                                            }
-                                        }
-                                        if (strcmp(targetMac, game->macAddress) == 0) {
-                                            game->inChat = false;
-                                            game->appState = STATE_MAIN_MENU;
-                                            updateStatus("You were Vote-Banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
-                                        } else {
-                                            for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
-                                                if(strcmp(game->activeUsers[game->selectedCategoryIdx][game->selectedSubIdx][u].mac, targetMac) == 0) {
-                                                    game->activeUsers[game->selectedCategoryIdx][game->selectedSubIdx][u].lastSeen = 0;
-                                                }
-                                            }
-                                        }
-                                        game->voteActive = false;
-                                        game->needsRedrawTop = true;
-                                        game->needsRedrawBottom = true;
-                                    }
-                                }
+                        else if (strcmp(topic_str, time_res_topic) == 0) {
+                            u64 receivedTs = 0;
+                            if (sscanf(payload, "%llu", &receivedTs) == 1 && receivedTs > 1700000000ULL) {
+                                game->trustedUnixTime = receivedTs;
+                                game->trustedTick = getMonotonicTick();
+                                game->trustedTimeValid = true;
+                                saveTrustedTime();
                             }
                         }
-                        else if (strncmp(topic_str, expected_hb, strlen(expected_hb)) == 0) {
-                            bool isRetained = (recv_buf[i] & 0x1) != 0;
-                            if (!isRetained) {
+                        else if (strncmp(topic_str, g_base_topic, strlen(g_base_topic)) == 0) {
+                            if (strcmp(topic_str, admin_reset_topic) == 0 ||
+                                strcmp(topic_str, admin_unban_topic) == 0 ||
+                                strcmp(topic_str, admin_ban_topic) == 0 ||
+                                strcmp(topic_str, admin_kick_topic) == 0 ||
+                                strcmp(topic_str, admin_list_req_topic) == 0 ||
+                                strcmp(topic_str, admin_status_topic) == 0 ||
+                                strcmp(topic_str, admin_announce_topic) == 0) {
+                                handle_admin_command(topic_str, payload);
+                            }
+                            else if (strncmp(topic_str, expected_vote, strlen(expected_vote)) == 0) {
+                                char action[16];
                                 int c, s;
-                                char format_str[64];
-                                snprintf(format_str, sizeof(format_str), "%s/Heartbeat/C%%d/S%%d", g_base_topic);
-                                if (sscanf(topic_str, format_str, &c, &s) == 2) {
-                                    if (c >= 0 && c < CATEGORY_COUNT && s >= 0 && s < MAX_SUB_ROOMS) {
-                                        time_t ts = getTrustedTime();
-                                        game->roomActivity[c][s] = ts;
-                                        if (payload[0] == '!') {
-                                            for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
-                                                if(strcmp(game->activeUsers[c][s][u].clientID, payload + 1) == 0) {
-                                                    game->activeUsers[c][s][u].lastSeen = 0;
-                                                    break;
-                                                }
-                                            }
-                                        } else {
-                                            char p_cid[32] = {0};
-                                            char p_name[16] = {0};
-                                            char p_mac[MAC_BUFFER_SIZE] = {0};
+                                if (sscanf(topic_str + strlen(expected_vote), "%15[^/]/C%d/S%d", action, &c, &s) == 3) {
+                                    if (c == game->selectedCategoryIdx && s == game->selectedSubIdx) {
+                                        if (strcmp(action, "Start") == 0) {
+                                            char tMac[MAC_BUFFER_SIZE]={0}, tName[16]={0}, iMac[MAC_BUFFER_SIZE]={0}, iName[16]={0};
                                             char* p1 = strchr(payload, '|');
                                             if (p1) {
-                                                int clen = p1 - payload;
-                                                if (clen > 31) clen = 31;
-                                                snprintf(p_cid, sizeof(p_cid), "%.*s", clen, payload);
+                                                int lenMac = p1 - payload;
+                                                if(lenMac > MAX_MAC_DISPLAY) lenMac = MAX_MAC_DISPLAY;
+                                                snprintf(tMac, sizeof(tMac), "%.*s", lenMac, payload);
                                                 char* p2 = strchr(p1 + 1, '|');
                                                 if (p2) {
-                                                    int nlen = p2 - (p1 + 1);
-                                                    if (nlen > 15) nlen = 15;
-                                                    snprintf(p_name, sizeof(p_name), "%.*s", nlen, p1 + 1);
-                                                    snprintf(p_mac, sizeof(p_mac), "%s", p2 + 1);
-                                                } else {
-                                                    snprintf(p_name, sizeof(p_name), "%s", p1 + 1);
-                                                    snprintf(p_mac, sizeof(p_mac), "000000000000000");
+                                                    int lenName = p2 - (p1 + 1);
+                                                    if(lenName>15) lenName=15;
+                                                    snprintf(tName, sizeof(tName), "%.*s", lenName, p1 + 1);
+                                                    char* p3 = strchr(p2 + 1, '|');
+                                                    if (p3) {
+                                                        int lenIMac = p3 - (p2 + 1);
+                                                        if(lenIMac > MAX_MAC_DISPLAY) lenIMac = MAX_MAC_DISPLAY;
+                                                        snprintf(iMac, sizeof(iMac), "%.*s", lenIMac, p2 + 1);
+                                                        snprintf(iName, sizeof(iName), "%s", p3 + 1);
+                                                    }
                                                 }
-                                            } else {
-                                                snprintf(p_cid, sizeof(p_cid), "%s", payload);
-                                                snprintf(p_name, sizeof(p_name), "Unknown");
-                                                snprintf(p_mac, sizeof(p_mac), "000000000000000");
                                             }
-                                            if (!isBanned(p_mac)) {
-                                                bool found = false;
-                                                int oldestIdx = 0;
-                                                time_t oldestTime = ts;
-                                                for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
-                                                    if(strcmp(game->activeUsers[c][s][u].clientID, p_cid) == 0) {
-                                                        game->activeUsers[c][s][u].lastSeen = ts;
-                                                        snprintf(game->activeUsers[c][s][u].name, sizeof(game->activeUsers[c][s][u].name), "%s", p_name);
-                                                        snprintf(game->activeUsers[c][s][u].mac, sizeof(game->activeUsers[c][s][u].mac), "%s", p_mac);
-                                                        found = true;
-                                                        break;
+                                            if (strlen(tMac) > 0 && !game->voteActive) {
+                                                game->voteActive = true;
+                                                snprintf(game->voteTargetMac, sizeof(game->voteTargetMac), "%s", tMac);
+                                                snprintf(game->voteTargetName, sizeof(game->voteTargetName), "%s", tName);
+                                                snprintf(game->voteInitiatorMac, sizeof(game->voteInitiatorMac), "%s", iMac);
+                                                snprintf(game->voteInitiatorName, sizeof(game->voteInitiatorName), "%s", iName);
+                                                game->voteEndTime = osGetTime() + 30000;
+                                                game->voteYes = 0;
+                                                game->voteNo = 0;
+                                                game->votedCount = 0;
+                                                game->iHaveVoted = false;
+                                                game->needsRedrawTop = true;
+                                            }
+                                        } else if (strcmp(action, "Cast") == 0) {
+                                            if (game->voteActive) {
+                                                char vMac[MAC_BUFFER_SIZE] = {0};
+                                                int vVal = 0;
+                                                char* p1 = strchr(payload, '|');
+                                                if (p1) {
+                                                    int len = p1 - payload;
+                                                    if(len > MAX_MAC_DISPLAY) len = MAX_MAC_DISPLAY;
+                                                    snprintf(vMac, sizeof(vMac), "%.*s", len, payload);
+                                                    vVal = atoi(p1 + 1);
+                                                    
+                                                    bool already = false;
+                                                    for (int v = 0; v < game->votedCount; v++) {
+                                                        if (strcmp(game->votedMacs[v], vMac) == 0) { already = true; break; }
                                                     }
-                                                    if(game->activeUsers[c][s][u].lastSeen < oldestTime) {
-                                                        oldestTime = game->activeUsers[c][s][u].lastSeen;
-                                                        oldestIdx = u;
+                                                    if (!already && game->votedCount < LOBBY_MAX_USERS) {
+                                                        snprintf(game->votedMacs[game->votedCount++], sizeof(game->votedMacs[0]), "%s", vMac);
+                                                        if (vVal == 1) game->voteYes++; else game->voteNo++;
+                                                        game->needsRedrawTop = true;
                                                     }
-                                                }
-                                                if(!found) {
-                                                    snprintf(game->activeUsers[c][s][oldestIdx].clientID, sizeof(game->activeUsers[c][s][oldestIdx].clientID), "%s", p_cid);
-                                                    snprintf(game->activeUsers[c][s][oldestIdx].name, sizeof(game->activeUsers[c][s][oldestIdx].name), "%s", p_name);
-                                                    snprintf(game->activeUsers[c][s][oldestIdx].mac, sizeof(game->activeUsers[c][s][oldestIdx].mac), "%s", p_mac);
-                                                    game->activeUsers[c][s][oldestIdx].lastSeen = ts;
                                                 }
                                             }
                                         }
-                                        game->needsRedrawTop = true;
-                                        game->needsRedrawBottom = true;
-                                        game->lastNetworkActivity = osGetTime();
+                                        else if (strcmp(action, "Result") == 0) {
+                                            char targetMac[MAC_BUFFER_SIZE];
+                                            snprintf(targetMac, sizeof(targetMac), "%.*s", MAX_MAC_DISPLAY, payload);
+                                            if (!isBanned(targetMac)) {
+                                                time_t banEnd = getTrustedTime() + BAN_DURATION_SECONDS;
+                                                if (addBanEntry(targetMac, "VoteBanned", banEnd)) {
+                                                    updateStatus("User was banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
+                                                }
+                                            }
+                                            if (strcmp(targetMac, game->macAddress) == 0) {
+                                                game->isSyncing = true;
+                                                game->inChat = false;
+                                                game->appState = STATE_MAIN_MENU;
+                                                updateStatus("You were Vote-Banned for 48 hours!", C2D_Color32(200, 50, 50, 255));
+                                            } else {
+                                                for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
+                                                    if(strcmp(game->activeUsers[game->selectedCategoryIdx][game->selectedSubIdx][u].mac, targetMac) == 0) {
+                                                        game->activeUsers[game->selectedCategoryIdx][game->selectedSubIdx][u].lastSeen = 0;
+                                                    }
+                                                }
+                                            }
+                                            game->voteActive = false;
+                                            game->needsRedrawTop = true;
+                                            game->needsRedrawBottom = true;
+                                        }
                                     }
                                 }
+                            }
+                            else if (strncmp(topic_str, expected_hb, strlen(expected_hb)) == 0) {
+                                bool isRetained = (recv_buf[i] & 0x1) != 0;
+                                if (!isRetained) {
+                                    if (strncmp(payload, "BANNED|", 7) == 0) {
+                                        char* bMac = payload + 7;
+                                        if (strcmp(bMac, game->macAddress) == 0) {
+                                            game->isSyncing = true;
+                                            addBanEntry(game->macAddress, "Server Kick", getTrustedTime() + BAN_DURATION_SECONDS);
+                                            if (game->inChat || game->appState != STATE_MAIN_MENU) {
+                                                game->inChat = false;
+                                                game->appState = STATE_MAIN_MENU;
+                                                char hb_topic[64];
+                                                snprintf(hb_topic, sizeof(hb_topic), "%s/Heartbeat/C%d/S%d", g_base_topic, game->selectedCategoryIdx, game->selectedSubIdx);
+                                                char leave_payload[64];
+                                                snprintf(leave_payload, sizeof(leave_payload), "!%s", game->clientID);
+                                                mqtt_publish(hb_topic, leave_payload, false);
+                                            }
+                                            updateStatus("Kicked by Server Admin!", C2D_Color32(200, 50, 50, 255));
+                                            game->needsRedrawTop = true;
+                                            game->needsRedrawBottom = true;
+                                        }
+                                    } else {
+                                        int c, s;
+                                        char format_str[64];
+                                        snprintf(format_str, sizeof(format_str), "%s/Heartbeat/C%%d/S%%d", g_base_topic);
+                                        if (sscanf(topic_str, format_str, &c, &s) == 2) {
+                                            if (c >= 0 && c < CATEGORY_COUNT && s >= 0 && s < MAX_SUB_ROOMS) {
+                                                time_t ts = getTrustedTime();
+                                                game->roomActivity[c][s] = ts;
+                                                if (payload[0] == '!') {
+                                                    for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
+                                                        if(strcmp(game->activeUsers[c][s][u].clientID, payload + 1) == 0) {
+                                                            game->activeUsers[c][s][u].lastSeen = 0;
+                                                            break;
+                                                        }
+                                                    }
+                                                } else {
+                                                    char p_cid[32] = {0};
+                                                    char p_name[16] = {0};
+                                                    char p_mac[MAC_BUFFER_SIZE] = {0};
+                                                    char* p1 = strchr(payload, '|');
+                                                    if (p1) {
+                                                        int clen = p1 - payload;
+                                                        if (clen > 31) clen = 31;
+                                                        snprintf(p_cid, sizeof(p_cid), "%.*s", clen, payload);
+                                                        char* p2 = strchr(p1 + 1, '|');
+                                                        if (p2) {
+                                                            int nlen = p2 - (p1 + 1);
+                                                            if (nlen > 15) nlen = 15;
+                                                            snprintf(p_name, sizeof(p_name), "%.*s", nlen, p1 + 1);
+                                                            int maclen = strlen(p2 + 1);
+                                                            snprintf(p_mac, sizeof(p_mac), "%.*s", maclen > MAX_MAC_DISPLAY ? MAX_MAC_DISPLAY : maclen, p2 + 1);
+                                                        } else {
+                                                            snprintf(p_name, sizeof(p_name), "%s", p1 + 1);
+                                                            snprintf(p_mac, sizeof(p_mac), "0000000000000");
+                                                        }
+                                                    } else {
+                                                        snprintf(p_cid, sizeof(p_cid), "%s", payload);
+                                                        snprintf(p_name, sizeof(p_name), "Unknown");
+                                                        snprintf(p_mac, sizeof(p_mac), "0000000000000");
+                                                    }
+                                                    if (!isBanned(p_mac)) {
+                                                        bool found = false;
+                                                        int oldestIdx = 0;
+                                                        time_t oldestTime = ts;
+                                                        for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
+                                                            if(strcmp(game->activeUsers[c][s][u].clientID, p_cid) == 0) {
+                                                                game->activeUsers[c][s][u].lastSeen = ts;
+                                                                snprintf(game->activeUsers[c][s][u].name, sizeof(game->activeUsers[c][s][u].name), "%s", p_name);
+                                                                snprintf(game->activeUsers[c][s][u].mac, sizeof(game->activeUsers[c][s][u].mac), "%s", p_mac);
+                                                                found = true;
+                                                                break;
+                                                            }
+                                                            if(game->activeUsers[c][s][u].lastSeen < oldestTime) {
+                                                                oldestTime = game->activeUsers[c][s][u].lastSeen;
+                                                                oldestIdx = u;
+                                                            }
+                                                        }
+                                                        if(!found) {
+                                                            snprintf(game->activeUsers[c][s][oldestIdx].clientID, sizeof(game->activeUsers[c][s][oldestIdx].clientID), "%s", p_cid);
+                                                            snprintf(game->activeUsers[c][s][oldestIdx].name, sizeof(game->activeUsers[c][s][oldestIdx].name), "%s", p_name);
+                                                            snprintf(game->activeUsers[c][s][oldestIdx].mac, sizeof(game->activeUsers[c][s][oldestIdx].mac), "%s", p_mac);
+                                                            game->activeUsers[c][s][oldestIdx].lastSeen = ts;
+                                                        }
+                                                    }
+                                                }
+                                                game->needsRedrawTop = true;
+                                                game->needsRedrawBottom = true;
+                                                game->lastNetworkActivity = osGetTime();
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                decode_drawing(payload);
                             }
                         } else {
                             decode_drawing(payload);
                         }
-                    } else {
-                        decode_drawing(payload);
+                        free(payload);
                     }
-                    free(payload);
                 }
             }
+            i += total_packet_len;
         }
-        i += total_packet_len;
-    }
 
-    if (i > 0) {
-        memmove(recv_buf, recv_buf + i, recv_len - i);
-        recv_len -= i;
+        if (i > 0) {
+            memmove(recv_buf, recv_buf + i, recv_len - i);
+            recv_len -= i;
+        }
+
+        if (bytes <= 0) break;
+        
+        if (recv_len >= MAX_PAYLOAD_SIZE && i == 0) {
+            recv_len = 0; 
+            break;
+        }
     }
 }
 
@@ -649,8 +740,11 @@ void handle_admin_command(const char* topic, const char* payload) {
                 *mac = '\0';
                 mac++;
                 if (strcmp(token, admin_token) == 0 && strlen(mac) > 0) {
-                    if (strcmp(mac, game->macAddress) == 0) {
-                        if (game->inChat) {
+                    char shortMac[MAX_MAC_DISPLAY + 1];
+                    snprintf(shortMac, sizeof(shortMac), "%.*s", MAX_MAC_DISPLAY, mac);
+                    if (strcmp(shortMac, game->macAddress) == 0) {
+                        game->isSyncing = true;
+                        if (game->inChat || game->appState != STATE_MAIN_MENU) {
                             game->inChat = false;
                             game->appState = STATE_MAIN_MENU;
                             updateStatus("KICKED by admin", C2D_Color32(200, 50, 50, 255));
@@ -667,7 +761,7 @@ void handle_admin_command(const char* topic, const char* payload) {
                     for (int c=0; c<CATEGORY_COUNT; c++) {
                         for (int s=0; s<MAX_SUB_ROOMS; s++) {
                             for(int u = 0; u < MAX_ACTIVE_USERS; u++) {
-                                if(strcmp(game->activeUsers[c][s][u].mac, mac) == 0) {
+                                if(strcmp(game->activeUsers[c][s][u].mac, shortMac) == 0) {
                                     game->activeUsers[c][s][u].lastSeen = 0;
                                 }
                             }
@@ -686,9 +780,11 @@ void handle_admin_command(const char* topic, const char* payload) {
                 *mac = '\0';
                 mac++;
                 if (strcmp(token, admin_token) == 0 && strlen(mac) > 0) {
+                    char shortMac[MAX_MAC_DISPLAY + 1];
+                    snprintf(shortMac, sizeof(shortMac), "%.*s", MAX_MAC_DISPLAY, mac);
                     bool changed = false;
                     for(int i = 0; i < bannedCount; i++) {
-                        if(strcmp(bannedUsers[i].mac, mac) == 0) {
+                        if(strcmp(bannedUsers[i].mac, shortMac) == 0) {
                             for(int j = i; j < bannedCount - 1; j++) {
                                 bannedUsers[j] = bannedUsers[j+1];
                             }
@@ -700,9 +796,13 @@ void handle_admin_command(const char* topic, const char* payload) {
                     if(changed) {
                         lastBanChangeTime = (u64)getTrustedTime();
                         saveBannedList();
-                        if (strcmp(mac, game->macAddress) == 0) {
-                            updateStatus("You were UNBANNED!", C2D_Color32(50, 200, 50, 255));
+                    }
+                    if (strcmp(shortMac, game->macAddress) == 0) {
+                        if (osGetTime() - game->bootTime > 7000) {
+                            game->isSyncing = false;
                         }
+                        updateStatus("You were UNBANNED!", C2D_Color32(50, 200, 50, 255));
+                        game->needsRedrawTop = true;
                     }
                 }
             }
@@ -726,9 +826,8 @@ void handle_admin_command(const char* topic, const char* payload) {
                         if (strcmp(msg, currentLobby) == 0) {
                             u32 color = C2D_Color32(200, 50, 50, 255);
                             if (lobby[0] == '[' && lobby[1] == '#' && strlen(lobby) > 8 && lobby[8] == ']') {
-                                int r,g,b;
-                                if (sscanf(lobby, "[#%02x%02x%02x]", &r, &g, &b) == 3 ||
-                                    sscanf(lobby, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
+                                int r=0, g=0, b=0;
+                                if (sscanf(lobby, "[#%02x%02x%02x]", &r, &g, &b) == 3 || sscanf(lobby, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
                                     color = C2D_Color32(r, g, b, 255);
                                     lobby += 9;
                                 }
@@ -738,9 +837,8 @@ void handle_admin_command(const char* topic, const char* payload) {
                     } else {
                         u32 color = C2D_Color32(200, 50, 50, 255);
                         if (msg[0] == '[' && msg[1] == '#' && strlen(msg) > 8 && msg[8] == ']') {
-                            int r,g,b;
-                            if (sscanf(msg, "[#%02x%02x%02x]", &r, &g, &b) == 3 ||
-                                sscanf(msg, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
+                            int r=0, g=0, b=0;
+                            if (sscanf(msg, "[#%02x%02x%02x]", &r, &g, &b) == 3 || sscanf(msg, "[#%02X%02X%02X]", &r, &g, &b) == 3) {
                                 color = C2D_Color32(r, g, b, 255);
                                 msg += 9;
                             }
@@ -758,7 +856,7 @@ void handle_admin_command(const char* topic, const char* payload) {
             if (list_payload) {
                 int offset = snprintf(list_payload, 4096, "%s|%llu|", admin_token, lastBanChangeTime);
                 for(int i=0; i<bannedCount; i++) {
-                    int written = snprintf(list_payload + offset, 4096 - offset, "%s,%s,%lld|",
+                    int written = snprintf(list_payload + offset, 4096 - offset, "%s,%s,%lld|", 
                         bannedUsers[i].mac, bannedUsers[i].name, (long long)bannedUsers[i].banEnd);
                     if (written > 0) offset += written;
                     if (offset >= 4090) break;
