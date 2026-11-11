@@ -1,67 +1,73 @@
 <div align="center">
 
 # NoteRoom 🖍️🏝️✨
-### A Real-Time Online Multiplayer World, Island Builder & Drawing Messenger for the Nintendo 3DS
+### A Real-Time Online HD-2D Multiplayer World, Island Builder & 3D Drawing Messenger for the Nintendo 3DS
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/aB6Z93B5X6)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/9vQm6f87jZ)
 [![License](https://img.shields.io/badge/License-Proprietary%20Freeware-red?style=for-the-badge)](#%EF%B8%8F-license--legal-disclaimer)
 [![Platform](https://img.shields.io/badge/Platform-Nintendo%203DS-E60012?style=for-the-badge&logo=nintendo-3ds&logoColor=white)](https://github.com/SprtnDio/NoteRoom/releases)
-[![Version](https://img.shields.io/badge/Version-4.1%20Alpha-00FF80?style=for-the-badge)](https://github.com/SprtnDio/NoteRoom/releases/latest)
+[![Version](https://img.shields.io/badge/Version-4.6%20Alpha-00FF80?style=for-the-badge)](https://github.com/SprtnDio/NoteRoom/releases/latest)
 
 </div>
 
 ---
 
-**NoteRoom** started as a nostalgic dual-screen drawing messenger and has evolved into a full-featured **2D online multiplayer sandbox, RPG hangout, and real-time chat world** for the Nintendo 3DS family. 
+**NoteRoom** started as a nostalgic dual-screen drawing messenger and has evolved into a full-featured **HD-2D online multiplayer sandbox, action-RPG hangout, and stereoscopic 3D drawing world** for the Nintendo 3DS family.
 
-Walk around live islands with your customizable character, build your own **88×88 world**, decorate **19×19 house interiors**, link islands via a **global portal network**, play multiplayer **minigames**, go **fishing** for coins, unlock **magical spells**, and share pixel-perfect **touchscreen drawings** in real time!
+Explore live islands with your customizable character, build your own **88×88 world**, decorate **19×19 house interiors**, link islands via a **global portal network**, team up for **Co-Op Monster Raids** & **1v1 PvP Duels**, enjoy a live-synthesized **3-Part Original Soundtrack**, play multiplayer **minigames**, and share **4-layer stereoscopic 3D touchscreen drawings** in real time!
 
-> ⚠️ **OFFICIAL SOURCE WARNING:** This GitHub repository is the **ONLY** official source for NoteRoom. Do not download `.cia` or `.3dsx` files from random websites or third-party servers to avoid outdated or modified files.
+> ⚠️ **OFFICIAL SOURCE WARNING:** This GitHub repository (alongside the official Universal-Updater entry) is the **ONLY** official source for NoteRoom. Do not download `.cia` or `.3dsx` files from random websites or third-party servers to avoid outdated or modified files.
 
 ---
 
 ## 💬 Join the Community
 
-Want to find building partners, share your 3DS drawings, trade Friend Codes, or suggest new features? **Join our official Discord server!**
+Want to find building partners, share your 3D drawings, team up for Monster Raids, trade Friend Codes, or suggest new features? **Join our official Discord server!**
 
-* 🏝️ **Island Showcase:** Share screenshots of your custom-built worlds and house interiors.
-* 🎮 **Matchmaking & Events:** Team up for Prop Hunt, Fishing Derbies, and Coin Hunts.
-* 🖍️ **Art Gallery:** Show off your best 3DS touchscreen doodles.
-* 🛠️ **Support & Live Status:** Get installation help, report bugs, and see live server updates.
+- 🏝️ **Island Showcase:** Share screenshots of your custom-built worlds and house interiors.
+- ⚔️ **Raids, PvP & Events:** Team up for Co-Op Monster Raids, Prop Hunt, Fishing Derbies, and Coin Hunts.
+- 🖍️ **3D Art Gallery:** Show off your best 4-layer 3DS touchscreen doodles with studio-framed previews.
+- 🛠️ **Support & Live Status:** Get installation help, report bugs, and see accurate live player counts.
 
-👉 **[Click here to join the NoteRoom Discord Server!](https://discord.gg/aB6Z93B5X6)**
+👉 **[Click here to join the NoteRoom Discord Server!](https://discord.gg/9vQm6f87jZ)**
 
 ---
 
-## ✨ What's New in NoteRoom v4.1 Alpha?
+## ✨ What's New & Featured in NoteRoom v4.6 Alpha?
 
-### 🏝️ Multiplayer World & 88×88 Island Builder
-* **Town Square & Custom Worlds:** Hang out in the central Town Square or forge your own persistent **88×88 custom island** across **9 tile layers** (ground, paths, water, buildings, roofs, trees, and animated decor).
-* **🏠 19×19 House Interiors:** Place doors on your island and step inside! Every door leads to a customizable **19×19 indoor room** that you can furnish with floors, walls, and furniture.
-* **🌀 Global Portal Network:** Place and name magical portals on your island. Portals with matching names automatically link together—allowing players to teleport across the same island or **between completely different players' islands** (even waking up offline islands automatically!).
-* **🌦️ Dynamic Live Weather:** Island owners and admins can switch live weather effects in real time: *Clear Sky, Sunny God-Rays, Rain & Puddles, Snowfall, Starry Night, Night + Snow, Night + Rain,* and *Spooky Halloween*.
-* **🔑 Host Controls & Build Permissions:** Protect your room with a password, accept knock requests, and grant or revoke live build rights for your friends.
+### 🎵 Built-in Original Soundtrack Suite (*Composed by SprtnDio*)
+- **Real-Time 32 kHz Stereo Synth Engine:** Experience a seamless **7:30-minute, 3-part Original Soundtrack** synthesized live on the Nintendo 3DS DSP with zero-aliasing wavetables, expressive bowed strings, sidechain compression, and stereo concert reverb:
+  1. **Track 1 — *Astral Horizon* (`02:30`):** Atmospheric HD-2D starlight theme with choir pads, crystal celesta arpeggios, and solo violin/ocarina.
+  2. **Track 2 — *Shattered Seal* (`02:30`):** Tragic 3/4 gothic boss symphony featuring cathedral pipe organ, vocal choir, solo cello/violin, and war timpani.
+  3. **Track 3 — *Crimson Overdrive* (`02:30`):** High-adrenaline 128 BPM combat anthem with sidechain-pumping supersaws, dark-synth bass, and laser arpeggios.
+- **Dynamic Combat & Raid Music Escalation:** Entering a **1v1 PvP Duel** or **Co-Op Monster Raid** smoothly crossfades into *Shattered Seal*, escalates into *Crimson Overdrive* during the Raid's second half / Boss wave, and seamlessly returns to *Astral Horizon* once peace is restored!
+- **6 Flexible Music Player Modes (`[START]` ➔ `MUSIC PLAYER`):** Switch anytime with **`[Y]`** between `OST Suite + SD MP3s`, `NoteRoom OST Only`, individual track loops (`Track 1–3`), or `MP3 Only` (`sdmc:/3ds/NoteRoom`).
 
-### 🎣 Fishing, Economy & Multiplayer Minigames
-* **🎣 Interactive Fishing (`[X]` at Water):** Cast your rod at any shoreline, time your hook when a fish approaches the bobber, and complete the 4-button combo (`A`/`B`/`X`/`Y`) to catch rare fish and earn **+10 Coins**!
-* **🎮 3 Live Multiplayer Minigames (`[START]` ➔ `MINIGAMES`):**
-  * 🪙 **Coin Hunt:** Race against other players to collect golden coins spawned across the island (+10 Coins per coin!).
-  * 🪑 **Prop Hunt:** One player becomes the **Seeker** while **Hiders** disguise themselves as any furniture or map object to survive for 90 seconds!
-  * 🏆 **Fishing Derby:** Compete in a 90-second fishing tournament for the highest score and a **+30 Coin bonus**!
+### 🎨 4-Layer Stereoscopic 3D Drawing Studio & Global Chat
+- **True 3DS Parallax Depth Layers:** Draw across 4 distinct depth planes (`1:BG`, `2:MID`, `3:FRT`, and `4:POP` for maximum 3D pop-out!) using **`[D-Pad Left / Right]`** or the bottom layer bar.
+- **Layer-Selective Eraser, Onion-Skinning & Live 3D Pin:** Erase only on your active layer, tap **`[DIM]`** to fade inactive layers while sketching, or tap **`[3D | %]`** to pin a large **Live 3D Preview** on the Top Screen!
+- **Global & Local Chat:** Chat across rooms (`[G]`) with custom badges, rainbow text, anti-spam ink protection, and 3DS emoticons (`:)`, `:D`, `:3`, `<3`, `[*]`, `[FIRE]`, `[x_x]`, `[+1]`).
 
-### 🪄 12 Fantasy Ranks & Spell Wheel (`[Y]`)
-* **📈 Level Up by Chatting & Playing:** Progress through **12 Fantasy Ranks**—from *Wanderer, Squire, Apprentice,* and *Acolyte* all the way to *Ranger, Mage, Sorcerer, Paladin, Archmage, Templar, Celestial,* and *Mythic*!
-* **✨ Unlockable Spells & Transformations:** Open your Spell Wheel with **`[Y]`** and cast spells with **`[A]`**:
-  * *Recall to Spawn, Fairy Wisp Light, Heart Fountain Aura, Wind Sprint, Live Fireworks, Bouncy Slime Form, Astral Step,* and special forms like the **Spooky Ghost** (walk through walls!) and the **Sky Dragon Mount** (in 8 elemental colors!).
+### ⚔️ Action Combat, Co-Op Monster Raids & Town Merchants
+- **Souls-Like Action Combat:** Enjoy 360-degree movement, timed **Dodge-Rolls (`[B]`)** with invulnerability frames, 3-phase melee weapon combos, the **Spirit Bow** (`Hold [L]` for single & 3-arrow volley shots), and the **Arcane Staff** (AoE healing circles & laser-aimed bolts).
+- **Co-Op Raids & 1v1 PvP Duels:** Speak to **Commander Garrick** to unseal the dark grave and trigger a Co-Op Monster Raid under the apocalyptic **Dark Storm** sky, or challenge armed players to 1v1 PvP duels!
+- **Town Square NPCs & Shops:** Visit **Merlin** (Spells & Dragon Mounts), **Barnaby** (Fish Buyer, Rod Upgrades, Weapons & Potion Flasks), and **Lucky's Casino** (Dice, 10x Wheel, Cups & PvP Pot).
 
-### 🎨 Dual-Screen Drawing & Global Chat
-* **Instant Vector Doodles:** Draw with your stylus using 3 pen/eraser sizes and a full color palette. Drawings are rendered proportionally inside chat bubbles.
-* **Global & Local Chat:** See messages from players in your room or across the server (`[G]`), complete with custom badges, rainbow text, and 3DS emoticons (`:)`, `:D`, `:3`, `<3`, `[*]`, `[FIRE]`, `[x_x]`, `[+1]`).
-* **🔄 Built-In OTA Updater:** Update NoteRoom directly on your 3DS via **`[START]` ➔ `Settings` ➔ `Check for Updates`** without removing your SD card!
+### 🏝️ HD-2D World & 88×88 Island Builder
+- **Town Square & Custom Worlds:** Hang out in the central HD-2D Town Square or forge your own persistent **88×88 custom island** across **9 tile layers** (ground, paths, water, buildings, roofs, seamless 2×2 trees, and animated decor).
+- **🏠 19×19 House Interiors:** Place doors on your island and step inside customizable **19×19 indoor rooms** ready to be furnished.
+- **🌀 Global Portal Network:** Link portals with matching names to teleport across your island or **between completely different players' worlds** (even waking up offline islands automatically!).
+- **🌩️ 8 Dynamic Live Weather Modes:** Toggle real-time atmospheres including *Clear Sky, Sunny God-Rays, Rain & Puddles, Snowfall, Starry Night, Spooky Halloween,* and the apocalyptic **Dark Storm** (featuring a Blood-Red Solar Eclipse, heavy rain, rising ash embers, and crimson-white lightning!).
+- **🔑 Host Controls & Build Permissions:** Protect rooms with passwords, accept knock requests, and grant or revoke live build rights for friends.
 
-### 🤖 Autonomous AI Inhabitants & Safety Watchdog
-* **Living AI Players:** Encounter autonomous AI characters that roam islands, build their own 24/7 worlds block-by-block, go fishing, react to your handwritten touchscreen drawings using Vision AI, and pull interactive pranks.
-* **🛡️ Global Rule Watchdog & Support Tickets:** Automated real-time rule enforcement (protecting user privacy and preventing harassment) combined with an in-app **Support Ticket System** (Category 7) and Democratic **VoteBan** to keep the community safe.
+### 🎣 Fishing, Economy, Ranks & Multiplayer Minigames
+- **🎣 Interactive Fishing (`[X]` at Water):** Cast your rod, hook approaching fish, and nail the button combo (`A`/`B`/`X`/`Y`) to catch rare fish and earn Coins!
+- **🎮 Live Multiplayer Minigames (`[START]` ➔ `MINIGAMES`):** Compete in **Coin Hunt**, disguise yourself as furniture in **Prop Hunt**, or battle for the highest catch score in **Fishing Derby**!
+- **🪄 12 Fantasy Ranks & Radial Wheel (`[Y]`):** Progress from *Wanderer* up to *Mythic* and unlock spells & transformations like *Fairy Wisp Light, Wind Sprint, Bouncy Slime, Spooky Ghost,* and the **Sky Dragon Mount**!
+
+### 🤖 Smarter AI Inhabitants & Precision Watchdog
+- **Living AI NPCs & Accurate Player Counts:** Meet autonomous AI characters (*Helpy, Merlin, Lucky, Barnaby, Garrick*) that roam, build, fish, and react to your 4-layer 3D drawings—without inflating online human player counts!
+- **🛡️ Upgraded AI Vision & Text Moderation:** Smart real-time protection that renders full 4-layer 3D drawings, avoids false-positive number warnings, protects real-life privacy, and sends severe rule-breakers to the **Time & Space Prison**.
 
 ---
 
@@ -69,32 +75,34 @@ Want to find building partners, share your 3DS drawings, trade Friend Codes, or 
 
 | Button | Action |
 | :--- | :--- |
-| **Circle Pad / D-Pad** | Walk around the island / Scroll in menus |
-| **Hold `[B]` + Move** | Sprint / Run fast |
+| **Circle Pad** | 360° Free Movement around the island |
+| **D-Pad** | Navigate menus / Move Build Cursor / Switch 3D Drawing Layers (`Left`/`Right`) |
+| **`[B]` (Tap / Hold)** | Timed Dodge-Roll (i-frames) / Hold to Sprint |
+| **`[A]`** | 3-Phase Weapon Combo / Cast Spell / Interact with NPCs |
+| **`[Y]`** | Open Radial Wheel (Switch Weapons & Spells) / Change Music Mode in Player |
+| **Hold `[L]` + `[A]` / `[R]`** | Aim Spirit Bow (`[A]` Single Shot / `[R]` 3-Arrow Volley) |
+| **`[L]` / `[R]` (Build Mode)** | Rotate tiles or furniture objects |
 | **`[X]` (Near Water)** | Cast Fishing Rod / Catch Fish |
-| **`[Y]` / `[A]`** | Open Spell Wheel (`[Y]`) / Cast Selected Spell or Interact (`[A]`) |
-| **`[L]` / `[R]`** | Rotate tiles or objects in Build Mode |
-| **Touchscreen** | Draw doodles, type messages, build tiles & navigate UI |
-| **`[START]`** | Open Main Menu (Minigames, Build Mode, Weather, Settings & OTA Updater) |
+| **Touchscreen** | 4-Layer 3D Drawing Studio, chat keyboard, tile building & UI navigation |
+| **`[START]`** | Open Main Menu (Settings & FX, Music Player, Minigames, Build Mode & OTA Updater) |
 
 ---
 
-## 📥 Installation (For Players)
+## 📥 Installation & Updating
 
-1. Go to the **[Releases](https://github.com/SprtnDio/NoteRoom/releases/latest)** page.
-2. Download **`NoteRoom.cia`** (recommended, install via **FBI**) or **`NoteRoom.3dsx`** (for the **Homebrew Launcher**).
-3. Copy the file to your 3DS SD card and install/launch it.
-4. Enter your nickname, step into the **Town Square** or create your own island, and have fun!
-5. *(For future updates, you can simply use the in-app **Check for Updates** button in the Settings menu!)*
+1. Go to the **[Releases](https://github.com/SprtnDio/NoteRoom/releases/latest)** page (or search **NoteRoom** in **Universal-Updater**).
+2. Download **`NoteRoom.cia`** (recommended, install via **FBI**) or **`NoteRoom.3dsx`** (place in `sdmc:/3ds/NoteRoom/` for the **Homebrew Launcher**).
+3. Launch NoteRoom, enter your nickname, and step into the **Town Square** or build your own island!
+4. **In-App Auto-Updater:** For future updates, simply open **`[START]` ➔ `SETTINGS & FX` ➔ `Check for Updates`** directly on your 3DS!
 
 ---
 
 ## 📜 Community Rules (Relaxed Edition)
 
 1. **Casual Swearing is Allowed:** Talk naturally! Mild, casual cursing in normal conversation is fine.
-2. **NO Personal Insults or Harassment:** Zero tolerance for bullying, hate speech, threats, or targeted harassment.
-3. **Protect Real-Life Privacy:** Never share your real name, age, address, phone number, school, or passwords.
-4. **No External Social Media:** Sharing Discord tags, Instagram, Snapchat, TikTok, etc. is not allowed in-game. **Nintendo 3DS Friend Codes (FC)** are the only allowed identifier!
+2. **NO Personal Insults, NSFW, or Harassment:** Zero tolerance for explicit NSFW drawings, hate symbols, bullying, threats, or targeted harassment (violators are sent to the *Time & Space Prison*).
+3. **Protect Real-Life Privacy:** Never share your real-life full name, real age, address, phone number, school, or passwords.
+4. **External Platforms & Identifiers:** Sharing personal external social media handles (Instagram, Snapchat, TikTok, private Discord tags) is not allowed. **Nintendo 3DS Friend Codes (FC)** and talking about NoteRoom's **official Discord server (`dc`)** are fully allowed!
 
 ---
 
@@ -102,7 +110,8 @@ Want to find building partners, share your 3DS drawings, trade Friend Codes, or 
 
 ### 1. Proprietary Freeware (Closed-Source)
 **NoteRoom** (Client & Master Server) is proprietary software developed by **SprtnDio**. All rights are reserved.  
-The compiled binaries (`.cia` / `.3dsx`) are provided free of charge for personal use on Nintendo 3DS systems. Redistribution, re-uploading to third-party hosts, reverse engineering, decompiling, or modifying the software is strictly prohibited. See the [LICENSE](LICENSE) file for full details.
+The compiled binaries (`.cia` / `.3dsx`) are provided free of charge for personal use on Nintendo 3DS systems. Redistribution, re-uploading to third-party hosts, reverse engineering, decompiling, or modifying the software is strictly prohibited. See the [LICENSE](LICENSE) file for full details.  
+*Special thanks to **PIPOYA** (pipoya.itch.io) for RPG tilesets & character sprites.*
 
 ### 2. No Affiliation
 NoteRoom is an unofficial, non-profit, fan-made homebrew project. It is not affiliated with, endorsed, or sponsored by Nintendo Co., Ltd. *"Nintendo"*, *"Nintendo 3DS"*, and associated trademarks are the property of Nintendo.
